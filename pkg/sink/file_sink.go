@@ -3,16 +3,17 @@ package sink
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"sync"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
+	"os"
+	"sync"
 )
 
 type FileSink struct {
 	filename string
 	file     *os.File
 	mu       sync.Mutex
+	ready    chan struct{}
 }
 
 func NewFileSink(filename string) (*FileSink, error) {
@@ -26,13 +27,16 @@ func NewFileSink(filename string) (*FileSink, error) {
 	return &FileSink{
 		filename: filename,
 		file:     file,
+		ready:    make(chan struct{}),
 	}, nil
 }
 
 func (s *FileSink) Consume(ctx context.Context, in <-chan *types.Packet) error {
 	logrus.Info("Starting file sink consumer")
 	defer logrus.Info("File sink consumer stopped")
-	
+
+	close(s.ready)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -69,4 +73,8 @@ func (s *FileSink) Consume(ctx context.Context, in <-chan *types.Packet) error {
 			s.mu.Unlock()
 		}
 	}
-} 
+}
+
+func (s *FileSink) Ready() <-chan struct{} {
+	return s.ready
+}

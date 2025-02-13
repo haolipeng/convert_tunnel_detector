@@ -133,10 +133,21 @@ func main() {
 	}
 
 	// 创建数据源
-	src, err := source.NewPcapSource(cfg)
-	if err != nil {
-		logrus.Fatalf("Failed to create packet source: %v", err)
+	var src pipeline.Source
+	if cfg.Source.Type == "file" {
+		fileSource, err := source.NewPcapFileSource(cfg.Source.Filename, cfg.Pipeline.BufferSize)
+		if err != nil {
+			logrus.Fatalf("Failed to create file source: %v", err)
+		}
+		src = fileSource
+	} else {
+		liveSource, err := source.NewPcapSource(cfg)
+		if err != nil {
+			logrus.Fatalf("Failed to create live source: %v", err)
+		}
+		src = liveSource
 	}
+
 	p.SetSource(src)
 
 	// 添加协议解析处理器

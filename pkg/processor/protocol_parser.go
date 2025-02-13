@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
@@ -97,10 +98,9 @@ func (p *ProtocolParser) parsePacket(packet *types.Packet, workerID int) (*types
 		return nil, nil
 	}
 
-	// 解析数据包
 	parsed := gopacket.NewPacket(packet.RawData, layers.LayerTypeEthernet, gopacket.Default)
 
-	// 识别协议
+	// 识别并解析数据包
 	if ipLayer := parsed.Layer(layers.LayerTypeIPv4); ipLayer != nil {
 		packet.Protocol = "IPv4"
 		ip, _ := ipLayer.(*layers.IPv4)
@@ -134,17 +134,28 @@ func (p *ProtocolParser) parsePacket(packet *types.Packet, workerID int) (*types
 				logrus.Debugf("Worker %d: Parsed ICMP packet, type: %d, code: %d, seq: %d",
 					workerID, icmp.TypeCode.Type(), icmp.TypeCode.Code(), icmp.Seq)
 			}
+
+		case layers.IPProtocolTCP:
+			if tcpLayer := parsed.Layer(layers.LayerTypeTCP); tcpLayer != nil {
+				packet.Protocol = "TCP"
+				tcp, _ := tcpLayer.(*layers.TCP)
+				packet.Features["src_port"] = tcp.SrcPort
+				packet.Features["dst_port"] = tcp.DstPort
+				logrus.Debugf("Worker %d: Parsed TCP packet from port %d to %d",
+					workerID, tcp.SrcPort, tcp.DstPort)
+			}
 		}
 	}
 
-	if tcpLayer := parsed.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-		packet.Protocol = "TCP"
-		tcp, _ := tcpLayer.(*layers.TCP)
-		packet.Features["src_port"] = tcp.SrcPort
-		packet.Features["dst_port"] = tcp.DstPort
-		logrus.Debugf("Worker %d: Parsed TCP packet from port %d to %d",
-			workerID, tcp.SrcPort, tcp.DstPort)
-	}
-
 	return packet, nil
+}
+
+func (p *ProtocolParser) CheckReady() error {
+	if p.workers <= 0 {
+		return fmt.Errorf("invalid worker count: %d", p.workers)
+	}
+	if p.metrics == nil {
+		return fmt.Errorf("metrics not initialized")
+	}
+	return nil
 }

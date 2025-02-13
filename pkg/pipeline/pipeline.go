@@ -86,12 +86,6 @@ func (p *pipeline) Start(ctx context.Context) error {
 	// 启动错误处理goroutine
 	go p.handleErrors(ctx)
 
-	// 启动数据源
-	if err := p.source.Start(ctx); err != nil {
-		logrus.Errorf("Failed to start source: %v", err)
-		return fmt.Errorf("failed to start source: %w", err)
-	}
-
 	// 构建处理链
 	var input <-chan *types.Packet = p.source.Output()
 	var err error
@@ -105,7 +99,29 @@ func (p *pipeline) Start(ctx context.Context) error {
 		}
 	}
 
-	// 启动数据输出
+	// 1. 首先检查所有处理器是否就绪
+	processorReady := make(chan struct{})
+	go func() {
+		for _, processor := range p.processors {
+			// 检查处理器的内部状态
+			if err := processor.CheckReady(); err != nil {
+				logrus.Errorf("Processor %s not ready: %v", processor.Name(), err)
+				p.errChan <- fmt.Errorf("processor not ready: %w", err)
+				return
+			}
+		}
+		close(processorReady) // 所有处理器就绪后关闭channel
+	}()
+
+	// 2. 等待处理器就绪，设置超时
+	select {
+	case <-processorReady:
+		logrus.Debug("All processors are ready")
+	case <-time.After(5 * time.Second):
+		return types.NewPipelineError("start", fmt.Errorf("timeout waiting for processors to be ready"))
+	}
+
+	// 3. 处理器就绪后，再启动sink
 	go func() {
 		if err := p.sink.Consume(ctx, input); err != nil {
 			logrus.Errorf("Sink error: %v", err)
@@ -113,7 +129,22 @@ func (p *pipeline) Start(ctx context.Context) error {
 		}
 	}()
 
+	// 4. 等待sink就绪
+	select {
+	case <-p.sink.Ready():
+		logrus.Debug("Sink is ready")
+	case <-time.After(5 * time.Second):
+		return types.NewPipelineError("start", fmt.Errorf("timeout waiting for sink to be ready"))
+	}
+
+	// 5. 最后启动数据源，开始数据流转
+	if err := p.source.Start(ctx); err != nil {
+		logrus.Errorf("Failed to start source: %v", err)
+		return fmt.Errorf("failed to start source: %w", err)
+	}
+
 	p.status = "running"
+	logrus.Info("Pipeline is now running")
 	return nil
 }
 

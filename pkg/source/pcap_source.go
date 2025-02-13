@@ -23,25 +23,33 @@ type PcapSource struct {
 }
 
 func NewPcapSource(config *config.Config) (*PcapSource, error) {
-	if config.Interface.Name == "" {
+	if config.Source.Interface.Name == "" {
 		return nil, fmt.Errorf("interface name is required")
 	}
 
 	handle, err := pcap.OpenLive(
-		config.Interface.Name,
-		config.Interface.SnapLen,
-		config.Interface.Promiscuous,
-		config.Interface.Timeout,
+		config.Source.Interface.Name,
+		config.Source.Interface.Snaplen,
+		config.Source.Interface.Promiscuous,
+		config.Source.Interface.Timeout,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open interface %s: %w",
-			config.Interface.Name, err)
+			config.Source.Interface.Name, err)
+	}
+
+	// 设置BPF过滤器
+	if config.Source.Interface.BPFFilter != "" {
+		if err := handle.SetBPFFilter(config.Source.Interface.BPFFilter); err != nil {
+			handle.Close()
+			return nil, fmt.Errorf("failed to set BPF filter: %w", err)
+		}
 	}
 
 	return &PcapSource{
 		handle:  handle,
 		output:  make(chan *types.Packet, config.Pipeline.BufferSize),
-		device:  config.Interface.Name,
+		device:  config.Source.Interface.Name,
 		stats:   &metrics.SourceMetrics{},
 		bufSize: config.Pipeline.BufferSize,
 	}, nil

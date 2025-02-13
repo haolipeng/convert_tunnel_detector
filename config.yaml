@@ -1,10 +1,3 @@
-interface:
-  name: "ens34"
-  snaplen: 65535
-  promiscuous: true
-  timeout: 30s
-  bpf_filter: ""
-
 pipeline:
   worker_count: 4
   buffer_size: 1000
@@ -19,3 +12,13 @@ log:
 output:
   type: "file"
   filename: "output.json"
+
+source:
+  type: "file"  # "file" 或 "live"
+  filename: "capture.pcap"  # 当 type 为 "file" 时使用
+  interface:  # 当 type 为 "live" 时使用
+    name: "ens34"
+    snaplen: 65535
+    promiscuous: true
+    timeout: 30s
+    bpf_filter: ""

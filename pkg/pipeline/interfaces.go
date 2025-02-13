@@ -25,12 +25,16 @@ type Processor interface {
 	Stage() types.Stage
 	// Name 返回处理器的名称
 	Name() string
+	// CheckReady 检查处理器是否就绪
+	CheckReady() error
 }
 
 // Sink 定义数据输出接口
 type Sink interface {
 	// Consume 消费处理后的数据包
 	Consume(ctx context.Context, in <-chan *types.Packet) error
+	// Ready 返回就绪信号channel
+	Ready() <-chan struct{}
 }
 
 // Pipeline 定义处理流水线接口

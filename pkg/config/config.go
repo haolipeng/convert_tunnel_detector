@@ -8,20 +8,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
-	Interface struct {
-		Name        string        `yaml:"name"`
-		SnapLen     int32         `yaml:"snaplen"`
-		Promiscuous bool          `yaml:"promiscuous"`
-		Timeout     time.Duration `yaml:"timeout"`
-		BPFFilter   string        `yaml:"bpf_filter"`
-	} `yaml:"interface"`
+type InterfaceConfig struct {
+	Name        string        `yaml:"name"`
+	Snaplen     int32         `yaml:"snaplen"`
+	Promiscuous bool          `yaml:"promiscuous"`
+	Timeout     time.Duration `yaml:"timeout"`
+	BPFFilter   string        `yaml:"bpf_filter"`
+}
 
+type SourceConfig struct {
+	Type      string          `yaml:"type"`
+	Filename  string          `yaml:"filename,omitempty"`
+	Interface InterfaceConfig `yaml:"interface,omitempty"`
+}
+
+type Config struct {
 	Pipeline struct {
 		WorkerCount int `yaml:"worker_count"`
 		BufferSize  int `yaml:"buffer_size"`
 	} `yaml:"pipeline"`
-
 	Log struct {
 		Level      string `yaml:"level"`
 		Dir        string `yaml:"dir"`
@@ -29,11 +34,19 @@ type Config struct {
 		MaxAge     int    `yaml:"max_age"`
 		RotateTime int    `yaml:"rotate_time"`
 	} `yaml:"log"`
+	Output struct {
+		Type     string `yaml:"type"`
+		Filename string `yaml:"filename"`
+	} `yaml:"output"`
+	Source SourceConfig `yaml:"source"`
 }
 
 func (c *Config) Validate() error {
-	if c.Interface.Name == "" {
-		return fmt.Errorf("interface name is required")
+	if c.Source.Type == "live" && c.Source.Interface.Name == "" {
+		return fmt.Errorf("interface name is required for live capture")
+	}
+	if c.Source.Type == "file" && c.Source.Filename == "" {
+		return fmt.Errorf("filename is required for file source")
 	}
 	if c.Pipeline.WorkerCount <= 0 {
 		return fmt.Errorf("worker count must be positive")
