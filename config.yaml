@@ -1,0 +1,21 @@
+interface:
+  name: "ens34"
+  snaplen: 65535
+  promiscuous: true
+  timeout: 30s
+  bpf_filter: ""
+
+pipeline:
+  worker_count: 4
+  buffer_size: 1000
+
+log:
+  level: "INFO"
+  dir: "./logs"
+  filename: "TunnelInsight.log"
+  max_age: 24
+  rotate_time: 1
+
+output:
+  type: "file"
+  filename: "output.json"

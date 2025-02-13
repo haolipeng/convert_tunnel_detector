@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 )
 
@@ -43,4 +45,10 @@ type Pipeline interface {
 	Start(ctx context.Context) error
 	// Stop 停止流水线
 	Stop() error
-} 
+	// GetMetrics 获取处理器指标
+	GetMetrics() map[string]*metrics.ProcessorMetrics
+	// SetConfig 设置流水线配置
+	SetConfig(*config.Config) error
+	// Status 返回流水线状态
+	Status() string
+}

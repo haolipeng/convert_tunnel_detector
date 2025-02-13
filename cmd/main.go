@@ -14,18 +14,28 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/sirupsen/logrus"
 
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/pipeline"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/processor"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/sink"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/source"
 )
 
-func InitLogger(fileName string, logDir string, logLevel string) error {
+func InitLogger(cfg *config.Config) error {
+	// 使用配置文件中的设置
+	formatter := &logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+	}
+	logrus.SetFormatter(formatter)
+
+	// 其他日志配置...
+
 	var level logrus.Level
 	var err error
 	var logWriter *rotates.RotateLogs
 
-	switch logLevel {
+	switch cfg.Log.Level {
 	case "DEBUG":
 		level = logrus.DebugLevel
 	case "WARN":
@@ -43,12 +53,12 @@ func InitLogger(fileName string, logDir string, logLevel string) error {
 	}
 
 	//1、判断文件路径和文件是否存在，不存在则创建
-	if _, err := os.Stat(logDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(logDir, 0755); err != nil {
+	if _, err := os.Stat(cfg.Log.Dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(cfg.Log.Dir, 0755); err != nil {
 			return err
 		}
 	}
-	logFileName := path.Join(logDir, fileName)
+	logFileName := path.Join(cfg.Log.Dir, cfg.Log.Filename)
 
 	//2、判断是否设置日志级别，默认为WARN级别
 	if level < logrus.PanicLevel || level > logrus.TraceLevel {
@@ -96,8 +106,14 @@ func InitLogger(fileName string, logDir string, logLevel string) error {
 }
 
 func main() {
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
 	// 初始化日志
-	if err := InitLogger("tunnelInsight.log", "./logs", "INFO"); err != nil {
+	if err := InitLogger(cfg); err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
@@ -111,23 +127,37 @@ func main() {
 	// 创建pipeline
 	p := pipeline.NewPipeline()
 
+	// 设置pipeline配置
+	if err := p.SetConfig(cfg); err != nil {
+		logrus.Fatalf("Failed to set pipeline config: %v", err)
+	}
+
 	// 创建数据源
-	src, err := source.NewPcapSource("ens34") //TODO:优化：从配置文件中读取网口名称
+	src, err := source.NewPcapSource(cfg)
 	if err != nil {
 		logrus.Fatalf("Failed to create packet source: %v", err)
 	}
 	p.SetSource(src)
 
-	// 添加处理器
-	p.AddProcessor(processor.NewProtocolParser(4))
-	p.AddProcessor(processor.NewBasicFeatureExtractor(4))
+	// 添加协议解析处理器
+	err = p.AddProcessor(processor.NewProtocolParser(cfg.Pipeline.WorkerCount, cfg))
+	if err != nil {
+		logrus.Errorf("Add Protocol Parser Processor Failed: %s\n", err)
+		return
+	}
+	// 添加特征提取处理器
+	err = p.AddProcessor(processor.NewBasicFeatureExtractor(cfg.Pipeline.WorkerCount))
+	if err != nil {
+		logrus.Errorf("Add Basic Feature Extractor Failed: %s\n", err)
+		return
+	}
 
 	// 设置输出
-	sink, err := sink.NewFileSink("output.json")
+	fileSink, err := sink.NewFileSink("output.json")
 	if err != nil {
 		logrus.Fatalf("Failed to create file sink: %v", err)
 	}
-	p.SetSink(sink)
+	p.SetSink(fileSink)
 
 	// 启动pipeline
 	if err := p.Start(ctx); err != nil {

@@ -5,30 +5,51 @@ import (
 	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
-	"time"
 	"github.com/sirupsen/logrus"
+	"time"
 )
 
-type pcapSource struct {
+type PcapSource struct {
 	handle    *pcap.Handle
 	output    chan *types.Packet
 	bpfFilter string
+	done      chan struct{}
+	stats     *metrics.SourceMetrics
+	bufSize   int
+	device    string
 }
 
-func NewPcapSource(device string) (*pcapSource, error) {
-	handle, err := pcap.OpenLive(device, 65535, true, pcap.BlockForever)
-	if err != nil {
-		return nil, err
+func NewPcapSource(config *config.Config) (*PcapSource, error) {
+	if config.Interface.Name == "" {
+		return nil, fmt.Errorf("interface name is required")
 	}
 
-	return &pcapSource{
-		handle: handle,
-		output: make(chan *types.Packet, 1000),
+	handle, err := pcap.OpenLive(
+		config.Interface.Name,
+		config.Interface.SnapLen,
+		config.Interface.Promiscuous,
+		config.Interface.Timeout,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open interface %s: %w",
+			config.Interface.Name, err)
+	}
+
+	return &PcapSource{
+		handle:  handle,
+		output:  make(chan *types.Packet, config.Pipeline.BufferSize),
+		device:  config.Interface.Name,
+		stats:   &metrics.SourceMetrics{},
+		bufSize: config.Pipeline.BufferSize,
 	}, nil
 }
 
-func (s *pcapSource) Start(ctx context.Context) error {
+func (s *PcapSource) Start(ctx context.Context) error {
+	s.done = make(chan struct{})
+
 	if s.bpfFilter != "" {
 		logrus.Debugf("Setting BPF filter: %s", s.bpfFilter)
 		if err := s.handle.SetBPFFilter(s.bpfFilter); err != nil {
@@ -39,7 +60,7 @@ func (s *pcapSource) Start(ctx context.Context) error {
 
 	packetSource := gopacket.NewPacketSource(s.handle, s.handle.LinkType())
 	logrus.Infof("Started packet capture on interface with link type: %v", s.handle.LinkType())
-	
+
 	go func() {
 		defer close(s.output)
 		defer s.handle.Close()
@@ -50,6 +71,7 @@ func (s *pcapSource) Start(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				logrus.Info("Stopping packet capture due to context cancellation")
+				close(s.done)
 				return
 			default:
 				packet, err := packetSource.NextPacket()
@@ -73,11 +95,23 @@ func (s *pcapSource) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *pcapSource) Output() <-chan *types.Packet {
+func (s *PcapSource) Output() <-chan *types.Packet {
 	return s.output
 }
 
-func (s *pcapSource) SetFilter(filter string) error {
+func (s *PcapSource) SetFilter(filter string) error {
 	s.bpfFilter = filter
 	return nil
-} 
+}
+
+// 添加资源清理方法
+func (s *PcapSource) cleanup() {
+	if s.handle != nil {
+		s.handle.Close()
+		s.handle = nil
+	}
+	if s.output != nil {
+		close(s.output)
+		s.output = nil
+	}
+}
