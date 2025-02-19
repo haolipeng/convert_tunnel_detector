@@ -27,6 +27,11 @@ type SourceMetrics struct {
 	PacketsCaptured uint64
 	PacketsDropped  uint64
 	BytesProcessed  uint64
+	ErrorCount      uint64
+}
+
+func (m *SourceMetrics) IncrementErrorCount() {
+	atomic.AddUint64(&m.ErrorCount, 1)
 }
 
 type SinkMetrics struct {
@@ -44,4 +49,14 @@ func (m *ProcessorMetrics) GetStats() map[string]interface{} {
 		"avg_process_time": float64(atomic.LoadUint64(&m.ProcessingTime)) /
 			float64(atomic.LoadUint64(&m.ProcessedPackets)+1),
 	}
+}
+
+// IncrementPacketsCaptured 增加捕获的数据包计数
+func (m *SourceMetrics) IncrementPacketsCaptured() {
+	atomic.AddUint64(&m.PacketsCaptured, 1)
+}
+
+// AddBytesProcessed 增加处理的字节数
+func (m *SourceMetrics) AddBytesProcessed(bytes uint64) {
+	atomic.AddUint64(&m.BytesProcessed, bytes)
 }

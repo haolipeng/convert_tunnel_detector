@@ -9,6 +9,7 @@ import (
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type PcapSource struct {
 	stats     *metrics.SourceMetrics
 	bufSize   int
 	device    string
+	mu        sync.Mutex
 }
 
 func NewPcapSource(config *config.Config) (*PcapSource, error) {
@@ -55,7 +57,7 @@ func NewPcapSource(config *config.Config) (*PcapSource, error) {
 	}, nil
 }
 
-func (s *PcapSource) Start(ctx context.Context) error {
+func (s *PcapSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 	s.done = make(chan struct{})
 
 	if s.bpfFilter != "" {
@@ -70,16 +72,18 @@ func (s *PcapSource) Start(ctx context.Context) error {
 	logrus.Infof("Started packet capture on interface with link type: %v", s.handle.LinkType())
 
 	go func() {
-		defer close(s.output)
-		defer s.handle.Close()
-		logrus.Debug("Starting packet capture goroutine")
+		defer func() {
+			wg.Done()
+			s.cleanup()
+			close(s.done)
+			logrus.Info("Packet capture goroutine cleaned up")
+		}()
 
 		var packetCount int64 = 0
 		for {
 			select {
 			case <-ctx.Done():
-				logrus.Info("Stopping packet capture due to context cancellation")
-				close(s.done)
+				logrus.Info("Stopping packet capture: context cancellation")
 				return
 			default:
 				packet, err := packetSource.NextPacket()
@@ -88,13 +92,25 @@ func (s *PcapSource) Start(ctx context.Context) error {
 					continue
 				}
 
-				packetCount++
-				s.output <- &types.Packet{
+				p := &types.Packet{
 					ID:        fmt.Sprintf("pkt-%d", packetCount),
 					Timestamp: time.Now().UnixNano(),
 					RawData:   packet.Data(),
 					Protocol:  "Unknown", // 需要进一步解析
 					Features:  make(map[string]interface{}),
+				}
+
+				select {
+				case s.output <- p:
+					packetCount++
+					s.stats.PacketsCaptured++
+					s.stats.BytesProcessed += uint64(len(packet.Data()))
+					logrus.Debugf("capture Source: sent packet to out channel - %s", p.ID)
+				default:
+					logrus.Warnf("Source: out channel is full, dropping packet - %s", p.ID)
+				case <-ctx.Done(): //取消操作
+					logrus.Warnf("Source: context cancelled while sending packet - %s", p.ID)
+					return
 				}
 			}
 		}
@@ -112,14 +128,30 @@ func (s *PcapSource) SetFilter(filter string) error {
 	return nil
 }
 
-// 添加资源清理方法
+func (s *PcapSource) Stop() error {
+	logrus.Info("Stopping PcapSource...")
+	s.cleanup()
+	return nil
+}
+
 func (s *PcapSource) cleanup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.handle != nil {
 		s.handle.Close()
 		s.handle = nil
 	}
+
 	if s.output != nil {
-		close(s.output)
+		select {
+		case _, ok := <-s.output:
+			if ok {
+				close(s.output)
+			}
+		default:
+			close(s.output)
+		}
 		s.output = nil
 	}
 }

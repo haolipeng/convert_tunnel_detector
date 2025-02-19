@@ -3,18 +3,22 @@ package processor
 import (
 	"context"
 	"fmt"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
+	"sync"
 	"time"
 )
 
 type BasicFeatureExtractor struct {
 	workers int
+	config  *config.Config
 }
 
-func NewBasicFeatureExtractor(workers int) *BasicFeatureExtractor {
+func NewBasicFeatureExtractor(workers int, config *config.Config) *BasicFeatureExtractor {
 	return &BasicFeatureExtractor{
 		workers: workers,
+		config:  config,
 	}
 }
 
@@ -22,47 +26,53 @@ func (p *BasicFeatureExtractor) Stage() types.Stage {
 	return types.StageBasicFeatureExtraction
 }
 
-func (p *BasicFeatureExtractor) Process(ctx context.Context, in <-chan *types.Packet) (<-chan *types.Packet, error) {
-	out := make(chan *types.Packet, 1000)
-
+func (p *BasicFeatureExtractor) Process(ctx context.Context, in <-chan *types.Packet, wg *sync.WaitGroup) (<-chan *types.Packet, error) {
+	out := make(chan *types.Packet, p.config.Pipeline.BufferSize)
 	logrus.Debugf("Starting BasicFeatureExtractor with %d workers", p.workers)
 
-	for i := 0; i < p.workers; i++ {
-		go func(workerID int) {
-			logrus.Debugf("Worker %d started", workerID)
-			for {
-				select {
-				case <-ctx.Done():
-					logrus.Debugf("Worker %d received context cancellation", workerID)
+	go func() {
+		defer wg.Done()
+		defer logrus.Debugf("Feature extractor worker stopped")
+
+		for {
+			select {
+			case <-ctx.Done():
+				logrus.Info("Stopping feature extractor: context cancellation")
+				close(out)
+				return
+			case packet, ok := <-in:
+				if !ok {
+					logrus.Info("Stopping feature extractor: dataCh channel closed")
+					close(out)
 					return
-				case packet, ok := <-in:
-					if !ok {
-						logrus.Debugf("Worker %d: input channel closed", workerID)
-						return
-					}
+				}
 
-					if packet == nil {
-						logrus.Warnf("Worker %d received nil packet", workerID)
-						continue
-					}
+				if packet == nil {
+					logrus.Warnf("feature extractor received nil packet")
+					continue
+				}
 
-					// 提取基础特征
-					packet.Features["packet_size"] = len(packet.RawData)
-					packet.Features["process_time"] = time.Now().UnixNano()
+				start := time.Now()
+				// 提取基础特征
+				packet.Features["packet_size"] = len(packet.RawData)
+				packet.Features["process_time"] = time.Now().UnixNano()
+				packet.Features["processing_duration"] = time.Since(start).Nanoseconds()
 
-					logrus.Debugf("Worker %d processed packet: size=%d, time=%d",
-						workerID, packet.Features["packet_size"], packet.Features["process_time"])
-
-					select {
-					case out <- packet:
-					case <-ctx.Done():
-						logrus.Warnf("Worker %d: context cancelled while sending packet", workerID)
-						return
-					}
+				select {
+				case out <- packet:
+					//logrus.Infof("Feature Extractor Worker: sent packet to out channel")
+				default: //非阻塞发送
+					logrus.Warnf("Feature Extractor Worker: out channel is full, dropping packet - %s", packet.ID)
+				case <-ctx.Done():
+					logrus.Warnf("Feature Extractor Worker: context cancelled while sending packet")
+					close(out)
+					return
 				}
 			}
-		}(i)
-	}
+		}
+		//不要忘记关闭channel通道
+		close(out)
+	}()
 
 	return out, nil
 }

@@ -5,28 +5,37 @@ import (
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"sync"
 )
 
 // Source 定义数据源接口
 type Source interface {
 	// Start 启动数据源捕获
-	Start(ctx context.Context) error
+	Start(ctx context.Context, wg *sync.WaitGroup) error
 	// Output 返回数据输出channel
 	Output() <-chan *types.Packet
 	// SetFilter 设置数据包过滤器
 	SetFilter(filter string) error
+	// Stop 停止数据源并清理资源
+	Stop() error
+}
+
+// Cleaner 定义可选的清理接口
+type Cleaner interface {
+	Cleanup() error
 }
 
 // Processor 定义数据处理器接口
 type Processor interface {
 	// Process 处理数据包
-	Process(ctx context.Context, in <-chan *types.Packet) (<-chan *types.Packet, error)
+	Process(ctx context.Context, in <-chan *types.Packet, wg *sync.WaitGroup) (<-chan *types.Packet, error)
 	// Stage 返回处理器所属阶段
 	Stage() types.Stage
 	// Name 返回处理器的名称
 	Name() string
 	// CheckReady 检查处理器是否就绪
 	CheckReady() error
+	// 注意：处理器可以选择性地实现 Cleaner 接口
 }
 
 // Sink 定义数据输出接口

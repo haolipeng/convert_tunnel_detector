@@ -71,9 +71,15 @@ func (p *pipeline) Start(ctx context.Context) error {
 		return types.NewPipelineError("start", fmt.Errorf("pipeline already running"))
 	}
 
+	// 重置 WaitGroup
+	p.wg = sync.WaitGroup{}
+
+	// 设置状态为正在启动
+	p.running = true
 	p.startTime = time.Now()
 	p.status = "starting"
 	p.metrics = make(map[string]*metrics.ProcessorMetrics)
+	p.errChan = make(chan error, 100)
 	p.mu.Unlock()
 
 	// 为每个处理器初始化指标对象
@@ -84,18 +90,25 @@ func (p *pipeline) Start(ctx context.Context) error {
 	logrus.Info("Starting pipeline")
 
 	// 启动错误处理goroutine
-	go p.handleErrors(ctx)
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.handleErrors(ctx)
+	}()
 
-	// 构建处理链
 	var input <-chan *types.Packet = p.source.Output()
 	var err error
+	// 为每个处理器启动时增加 WaitGroup 计数
 
-	for _, processor := range p.processors {
-		logrus.Debugf("Starting processor at stage: %v", processor.Stage())
-		input, err = processor.Process(ctx, input)
+	processorCnt := len(p.processors)
+	p.wg.Add(processorCnt)
+	for _, proc := range p.processors {
+		logrus.Debugf("Starting processor at stage: %v", proc.Stage())
+		// 前一个stage阶段处理器的处理结果直接传递给下一个stage阶段的处理器
+		input, err = proc.Process(ctx, input, &p.wg)
 		if err != nil {
-			logrus.Errorf("Failed to start processor at stage %v: %v", processor.Stage(), err)
-			return fmt.Errorf("failed to start processor: %w", err)
+			logrus.Errorf("Failed to start processor at stage %v: %v", proc.Stage(), err)
+			p.errChan <- fmt.Errorf("failed to start processor: %w", err)
 		}
 	}
 
@@ -117,12 +130,17 @@ func (p *pipeline) Start(ctx context.Context) error {
 	select {
 	case <-processorReady:
 		logrus.Debug("All processors are ready")
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		return types.NewPipelineError("start", fmt.Errorf("timeout waiting for processors to be ready"))
 	}
 
+	//添加日志表示处理器启动成功
+	logrus.Info("All processors have started successfully")
+
 	// 3. 处理器就绪后，再启动sink
+	p.wg.Add(1)
 	go func() {
+		defer p.wg.Done()
 		if err := p.sink.Consume(ctx, input); err != nil {
 			logrus.Errorf("Sink error: %v", err)
 			p.errChan <- fmt.Errorf("sink error: %w", err)
@@ -137,11 +155,18 @@ func (p *pipeline) Start(ctx context.Context) error {
 		return types.NewPipelineError("start", fmt.Errorf("timeout waiting for sink to be ready"))
 	}
 
+	//添加日志表示sink启动成功
+	logrus.Info("Sink have started successfully")
+
 	// 5. 最后启动数据源，开始数据流转
-	if err := p.source.Start(ctx); err != nil {
+	p.wg.Add(1)
+	if err := p.source.Start(ctx, &p.wg); err != nil {
 		logrus.Errorf("Failed to start source: %v", err)
 		return fmt.Errorf("failed to start source: %w", err)
 	}
+
+	//添加日志表示数据源启动成功
+	logrus.Info("Data Source have started successfully")
 
 	p.status = "running"
 	logrus.Info("Pipeline is now running")
@@ -150,42 +175,54 @@ func (p *pipeline) Start(ctx context.Context) error {
 
 func (p *pipeline) Stop() error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if !p.running {
-		p.mu.Unlock()
 		return nil
 	}
 
-	logrus.Info("Stopping pipeline...")
+	p.status = "stopping"
+	logrus.Info("Pipeline stopping...")
 
-	// 设置关闭标志
+	// 1. 先设置状态，防止新的goroutine启动
 	p.running = false
-	p.mu.Unlock()
 
-	// 等待所有处理器完成
-	var wg sync.WaitGroup
-	for _, proc := range p.processors {
-		wg.Add(1)
-		go func(p Processor) {
-			defer wg.Done()
-			logrus.Infof("Waiting for processor %s to complete...", p.Name())
-		}(proc)
+	// 2. 关闭错误通道，停止错误处理 goroutine
+	if p.errChan != nil {
+		close(p.errChan)
+		p.errChan = nil
 	}
 
-	// 设置超时
+	// 3. 等待所有处理器完成
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		p.wg.Wait()
 		close(done)
 	}()
 
+	// 设置超时时间
 	select {
 	case <-done:
-		logrus.Info("All processors stopped gracefully")
+		logrus.Info("All processors completed gracefully")
 	case <-time.After(30 * time.Second):
-		logrus.Warn("Timeout waiting for processors to stop")
+		logrus.Warn("Timeout waiting for processors to complete")
 	}
 
-	close(p.errChan)
+	// 4. 清理处理器资源
+	for _, processor := range p.processors {
+		if cleaner, ok := processor.(interface{ Cleanup() error }); ok {
+			if err := cleaner.Cleanup(); err != nil {
+				logrus.Errorf("Error cleaning up processor %s: %v", processor.Name(), err)
+			}
+		}
+	}
+
+	p.status = "stopped"
+	p.processors = nil
+	p.metrics = make(map[string]*metrics.ProcessorMetrics)
+	p.startTime = time.Time{}
+
+	logrus.Info("Pipeline stopped and cleaned up")
 	return nil
 }
 

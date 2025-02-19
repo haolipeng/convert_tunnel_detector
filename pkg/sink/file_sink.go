@@ -31,6 +31,36 @@ func NewFileSink(filename string) (*FileSink, error) {
 	}, nil
 }
 
+func (s *FileSink) writePacketToFile(packet *types.Packet) error {
+	// 将数据包转换为JSON格式
+	data := map[string]interface{}{
+		"id":        packet.ID,
+		"timestamp": packet.Timestamp,
+		"protocol":  packet.Protocol,
+		"features":  packet.Features,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		logrus.Errorf("Failed to marshal packet to JSON: %v", err)
+		return err
+	}
+
+	// 写入文件
+	s.mu.Lock()
+	defer s.mu.Unlock() // 确保在函数结束时解锁
+
+	if _, err := s.file.Write(jsonData); err != nil {
+		logrus.Errorf("Failed to write packet to file: %v", err)
+		return err
+	}
+	if _, err := s.file.Write([]byte("\n")); err != nil {
+		logrus.Errorf("Failed to write newline to file: %v", err)
+		return err
+	}
+	return nil
+}
+
 func (s *FileSink) Consume(ctx context.Context, in <-chan *types.Packet) error {
 	logrus.Info("Starting file sink consumer")
 	defer logrus.Info("File sink consumer stopped")
@@ -48,29 +78,9 @@ func (s *FileSink) Consume(ctx context.Context, in <-chan *types.Packet) error {
 				return s.file.Close()
 			}
 
-			// 将数据包转换为JSON格式
-			data := map[string]interface{}{
-				"id":        packet.ID,
-				"timestamp": packet.Timestamp,
-				"protocol":  packet.Protocol,
-				"features":  packet.Features,
-			}
-
-			jsonData, err := json.Marshal(data)
-			if err != nil {
-				logrus.Errorf("Failed to marshal packet to JSON: %v", err)
+			if err := s.writePacketToFile(packet); err != nil {
 				continue
 			}
-
-			// 写入文件
-			s.mu.Lock()
-			if _, err := s.file.Write(jsonData); err != nil {
-				logrus.Errorf("Failed to write packet to file: %v", err)
-			}
-			if _, err := s.file.Write([]byte("\n")); err != nil {
-				logrus.Errorf("Failed to write newline to file: %v", err)
-			}
-			s.mu.Unlock()
 		}
 	}
 }

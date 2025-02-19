@@ -156,8 +156,9 @@ func main() {
 		logrus.Errorf("Add Protocol Parser Processor Failed: %s\n", err)
 		return
 	}
+
 	// 添加特征提取处理器
-	err = p.AddProcessor(processor.NewBasicFeatureExtractor(cfg.Pipeline.WorkerCount))
+	err = p.AddProcessor(processor.NewBasicFeatureExtractor(cfg.Pipeline.WorkerCount, cfg))
 	if err != nil {
 		logrus.Errorf("Add Basic Feature Extractor Failed: %s\n", err)
 		return
@@ -175,18 +176,27 @@ func main() {
 		logrus.Fatalf("Failed to start pipeline: %v", err)
 	}
 
-	logrus.Info("Pipeline started successfully")
+	logrus.Info("Pipeline have started successfully")
 
-	// 等待中断信号
+	// 处理中断信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// 等待中断信号
 	sig := <-sigChan
 	logrus.Infof("Received signal %v, shutting down...", sig)
 
 	// 优雅退出
-	cancel()
+	cancel() // 触发 context 取消
+
+	// 等待处理完成
 	if err := p.Stop(); err != nil {
 		logrus.Errorf("Error stopping pipeline: %v", err)
+	}
+
+	// 停止数据源
+	if err := src.Stop(); err != nil {
+		logrus.Errorf("Error stopping source: %v", err)
 	}
 
 	logrus.Info("Shutdown complete")
