@@ -2,9 +2,10 @@ package processor
 
 import (
 	"encoding/binary"
-	"github.com/google/gopacket/layers"
 	"net"
 	"time"
+
+	"github.com/google/gopacket/layers"
 )
 
 // DD包的Interface MTU标志位
@@ -15,12 +16,16 @@ const (
 	DDMaster               = 0x08
 )
 
+type PacketParserResult interface {
+	GetType() uint8
+}
+
 type OSPFPacket struct {
 	Timestamp    time.Time
 	SourceIP     net.IP
 	DestIP       net.IP
 	Version      uint8
-	Type         layers.OSPFType //
+	Type         layers.OSPFType //协议子类型
 	PacketLength uint16
 	RouterID     net.IP
 	AreaID       net.IP

@@ -2,10 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"sync"
+
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
-	"sync"
 )
 
 // Source 定义数据源接口

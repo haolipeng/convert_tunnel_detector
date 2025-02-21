@@ -97,7 +97,6 @@ func (s *PcapSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 					Timestamp: time.Now().UnixNano(),
 					RawData:   packet.Data(),
 					Protocol:  "Unknown", // 需要进一步解析
-					Features:  make(map[string]interface{}),
 				}
 
 				select {

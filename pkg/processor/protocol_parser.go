@@ -3,14 +3,15 @@ package processor
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
-	"sync"
-	"time"
 )
 
 type ProtocolParser struct {

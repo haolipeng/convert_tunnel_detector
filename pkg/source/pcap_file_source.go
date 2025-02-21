@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"sync"
+	"time"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
-	"io"
-	"sync"
-	"time"
 )
 
 type PcapFileSource struct {
@@ -85,7 +86,6 @@ func (s *PcapFileSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 					Timestamp: time.Now().UnixNano(),
 					RawData:   packet.Data(),
 					Protocol:  "Unknown",
-					Features:  make(map[string]interface{}),
 				}
 
 				select {

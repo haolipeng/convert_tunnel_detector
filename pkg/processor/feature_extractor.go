@@ -7,7 +7,6 @@ import (
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
 	"sync"
-	"time"
 )
 
 type BasicFeatureExtractor struct {
@@ -52,11 +51,7 @@ func (p *BasicFeatureExtractor) Process(ctx context.Context, in <-chan *types.Pa
 					continue
 				}
 
-				start := time.Now()
-				// 提取基础特征
-				packet.Features["packet_size"] = len(packet.RawData)
-				packet.Features["process_time"] = time.Now().UnixNano()
-				packet.Features["processing_duration"] = time.Since(start).Nanoseconds()
+				// TODO:提取基础特征
 
 				select {
 				case out <- packet:

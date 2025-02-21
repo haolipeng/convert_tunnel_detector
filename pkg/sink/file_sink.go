@@ -3,10 +3,11 @@ package sink
 import (
 	"context"
 	"encoding/json"
-	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
-	"github.com/sirupsen/logrus"
 	"os"
 	"sync"
+
+	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 type FileSink struct {
@@ -37,7 +38,6 @@ func (s *FileSink) writePacketToFile(packet *types.Packet) error {
 		"id":        packet.ID,
 		"timestamp": packet.Timestamp,
 		"protocol":  packet.Protocol,
-		"features":  packet.Features,
 	}
 
 	jsonData, err := json.Marshal(data)
