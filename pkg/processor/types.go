@@ -21,96 +21,115 @@ type PacketParserResult interface {
 }
 
 type OSPFPacket struct {
-	Timestamp    time.Time
-	SourceIP     net.IP
-	DestIP       net.IP
-	Version      uint8
-	Type         layers.OSPFType //协议子类型
-	PacketLength uint16
-	RouterID     net.IP
-	AreaID       net.IP
-	Checksum     uint16
-	AuType       uint16
+	Timestamp time.Time //
+	SourceIP  net.IP    //源ip
+	DestIP    net.IP    //目的ip
 
-	// Hello包特有字段
-	HelloFields *HelloFields
+	Version      uint8           //版本，ipv4或ipv6
+	SubType      layers.OSPFType //协议子类型
+	PacketLength uint16          //数据包长度
+	RouterID     net.IP          //路由器ID
+	AreaID       net.IP          //区域ID
+	Checksum     uint16          //校验和
+	AuType       uint16          //认证类型
+	//鉴定字段，其数值根据验证类型而定： 当验证类型为0时未作定义。 类型为1时此字段为密码信息。 类型为2时此字段包括Key ID、验证数据长度和序列号的信息。
+	Authentication uint64
+	//////////////////////通过SubType类明确如下字段哪些是可用状态/////////////////////////
+	HelloFields *HelloFields // Hello包特有字段
 
-	// DD包特有字段
-	DDFields *DDFields
+	DDFields *DDFields // DD包特有字段
 
-	// 新增LSR字段
-	LSRFields *LSRFields
+	LSRFields *LSRFields // LSR特有字段
 
-	// 新增LSU字段
-	LSUFields *LSUFields
+	LSUFields *LSUFields // LSU特有字段
 
-	// 新增LSAck字段
-	LSAckFields *LSAckFields
+	LSAckFields *LSAckFields // LSAck特有字段
 }
 
+// HelloFields 结构体定义了OSPF Hello报文的字段
 type HelloFields struct {
-	NetworkMask            net.IPMask
-	HelloInterval          uint16
-	Options                uint32
-	Priority               uint8
-	DeadInterval           uint32
-	DesignatedRouter       net.IP
+	// NetworkMask 网络掩码,用于指定网络范围
+	NetworkMask net.IPMask
+
+	// HelloInterval Hello报文发送间隔(单位:秒)
+	// 用于维持邻居关系,默认为10秒
+	HelloInterval uint16
+
+	// Options 可选项字段
+	// 包含了各种OSPF功能选项的标志位
+	Options uint32
+
+	// Priority 路由器优先级
+	// 用于DR/BDR选举,0表示不参与选举
+	Priority uint8
+
+	// DeadInterval 邻居失效时间间隔(单位:秒)
+	// 通常是HelloInterval的4倍
+	DeadInterval uint32
+
+	// DesignatedRouter 指定路由器的IP地址
+	DesignatedRouter net.IP
+
+	// BackupDesignatedRouter 备份指定路由器的IP地址,在DR失效时接替其角色
 	BackupDesignatedRouter net.IP
-	Neighbors              []net.IP
+
+	// Neighbors 邻居路由器IP地址列表
+	// 包含了当前已知的所有邻居路由器
+	Neighbors []net.IP
 }
 
 type LSAHeader struct {
-	Age               uint16
-	Options           uint8
-	Type              uint16
-	LSID              net.IP
-	AdvertisingRouter net.IP
-	SequenceNum       uint32
-	Checksum          uint16
-	Length            uint16
+	LSAge       uint16
+	LSType      uint16
+	LinkStateID net.IP
+	AdvRouter   net.IP
+	LSSeqNumber uint32
+	LSChecksum  uint16
+	Length      uint16
+	LSOptions   uint8
 }
 
 // IsRouterLSA LSA类型检查方法
 func (h *LSAHeader) IsRouterLSA() bool {
-	return h.Type == 1
+	return h.LSType == 1
 }
 
 func (h *LSAHeader) IsNetworkLSA() bool {
-	return h.Type == 2
+	return h.LSType == 2
 }
 
 func (h *LSAHeader) IsSummaryLSA() bool {
-	return h.Type == 3 || h.Type == 4
+	return h.LSType == 3 || h.LSType == 4
 }
 
 func (h *LSAHeader) IsASExternalLSA() bool {
-	return h.Type == 5
+	return h.LSType == 5
 }
 
 type DDFields struct {
 	InterfaceMTU uint16
 	Options      uint32
-	Flags        uint16 // I、M、MS标志位
-	DDSequence   uint32 // DD序列号
-	LSAHeaders   []LSAHeader
+	Flags        uint16      // I、M、MS标志位
+	DDSequence   uint32      // DD序列号
+	LSAHeaders   []LSAHeader //
 }
 
-// 检查是否是Master
+// IsMaster 检查是否是Master
 func (d *DDFields) IsMaster() bool {
 	return d.Flags&DDMaster != 0
 }
 
-// 检查是否设置了Initialize位
+// IsInitialize 检查是否设置了Initialize位
 func (d *DDFields) IsInitialize() bool {
 	return d.Flags&DDInitialize != 0
 }
 
-// 检查是否还有更多DD包
+// HasMore 检查是否还有更多DD包
 func (d *DDFields) HasMore() bool {
 	return d.Flags&DDMore != 0
 }
 
-// HelloFields 的辅助方法
+// HasNeighbor HelloFields 的辅助方法
 func (h *HelloFields) HasNeighbor(ip net.IP) bool {
 	for _, neighbor := range h.Neighbors {
 		if neighbor.Equal(ip) {
@@ -137,27 +156,30 @@ type LSRFields struct {
 }
 
 type LSARequest struct {
-	LSType            uint16 // 改为uint16
-	LSID              net.IP
-	AdvertisingRouter net.IP
+	LSType    uint16 // 改为uint16
+	LSID      net.IP
+	AdvRouter net.IP
 }
 
-// LSU相关结构体定义
 type LSUFields struct {
 	NumOfLSAs uint32
 	LSAs      []LSAFields
 }
 
+type LSAInfo struct {
+	LSType uint16
+}
+
 type LSAFields struct {
 	Header  LSAHeader
-	Content interface{}
+	Content LSAInfo
 }
 
 type LSAckFields struct {
 	LSAHeaders []LSAHeader
 }
 
-// OSPFPacket的辅助方法，用于更方便地访问DD包的标志位
+// IsDDMaster OSPFPacket的辅助方法，用于更方便地访问DD包的标志位
 func (p *OSPFPacket) IsDDMaster() bool {
 	if p.DDFields != nil {
 		return p.DDFields.IsMaster()

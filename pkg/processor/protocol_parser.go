@@ -131,12 +131,13 @@ func (p *ProtocolParser) parsePacket(packetData *types.Packet) (*types.Packet, e
 				return nil, nil
 			}
 
+			//区分是v2还是v3版本
 			if ospfV2, ok := ospfLayer.(*layers.OSPFv2); ok {
 				ospfParser := NewOSPFParser()
-				ospfParser.parsePacketV2(ip, ospfV2)
+				ospfParser.parsePacketV2(ip, ospfV2) //解析v2版本的ospf协议字段
 			} else if ospfV3, ok := ospfLayer.(*layers.OSPFv3); ok {
 				ospfParser := NewOSPFParser()
-				ospfParser.parsePacketV3(ip, ospfV3)
+				ospfParser.parsePacketV3(ip, ospfV3) //解析v3版本的ospf协议字段
 			}
 
 		case layers.IPProtocolIGMP:
@@ -153,6 +154,8 @@ func (p *ProtocolParser) parsePacket(packetData *types.Packet) (*types.Packet, e
 	} else {
 		logrus.Warnf("packet type is not ipv4 or ipv6!\n")
 	}
+
+	//TODO:解析成功，则将解析结果进行赋值
 
 	//TODO:这里返回值是有问题的
 	return packetData, nil

@@ -23,15 +23,16 @@ func (p *OSPFParser) parsePacketV3(ip *layers.IPv4, ospf *layers.OSPFv3) (*OSPFP
 func (p *OSPFParser) parsePacketV2(ip *layers.IPv4, ospf *layers.OSPFv2) (*OSPFPacket, error) {
 	// 创建基础OSPFPacket
 	ospfPkt := &OSPFPacket{
-		SourceIP:     ip.SrcIP,
-		DestIP:       ip.DstIP,
-		Version:      ospf.Version,
-		Type:         ospf.Type,
-		PacketLength: ospf.PacketLength,
-		RouterID:     Uint32ToIP(ospf.RouterID),
-		AreaID:       Uint32ToIP(ospf.AreaID),
-		Checksum:     ospf.Checksum,
-		AuType:       ospf.AuType,
+		SourceIP:       ip.SrcIP,
+		DestIP:         ip.DstIP,
+		Version:        ospf.Version,
+		SubType:        ospf.Type,
+		PacketLength:   ospf.PacketLength,
+		RouterID:       Uint32ToIP(ospf.RouterID),
+		AreaID:         Uint32ToIP(ospf.AreaID),
+		Checksum:       ospf.Checksum,
+		AuType:         ospf.AuType,
+		Authentication: ospf.Authentication,
 	}
 
 	// 根据包类型解析具体内容
@@ -49,7 +50,7 @@ func (p *OSPFParser) parsePacketV2(ip *layers.IPv4, ospf *layers.OSPFv2) (*OSPFP
 			return nil, err
 		}
 	case layers.OSPFLinkStateUpdate:
-		if err := p.parseLSRPacket(ospf.Content, ospfPkt); err != nil {
+		if err := p.parseLSUPacket(ospf.Content, ospfPkt); err != nil {
 			return nil, err
 		}
 	case layers.OSPFLinkStateAcknowledgment:
@@ -109,7 +110,7 @@ func (p *OSPFParser) parseHelloPacket(content interface{}, ospfPkt *OSPFPacket) 
 
 // parseDDPacket 解析DD包内容
 func (p *OSPFParser) parseDDPacket(content interface{}, ospfPkt *OSPFPacket) error {
-	dd, ok := content.(*layers.DbDescPkg)
+	dd, ok := content.(layers.DbDescPkg)
 	if !ok {
 		return fmt.Errorf("invalid DD packet content")
 	}
@@ -125,14 +126,14 @@ func (p *OSPFParser) parseDDPacket(content interface{}, ospfPkt *OSPFPacket) err
 	// 转换LSA Headers
 	for i, lsa := range dd.LSAinfo {
 		ospfPkt.DDFields.LSAHeaders[i] = LSAHeader{
-			Age:               lsa.LSAge,
-			Options:           lsa.LSOptions,
-			Type:              lsa.LSType,
-			LSID:              Uint32ToIP(lsa.LinkStateID),
-			AdvertisingRouter: Uint32ToIP(lsa.AdvRouter),
-			SequenceNum:       lsa.LSSeqNumber,
-			Checksum:          lsa.LSChecksum,
-			Length:            lsa.Length,
+			LSAge:       lsa.LSAge,
+			LSOptions:   lsa.LSOptions,
+			LSType:      lsa.LSType,
+			LinkStateID: Uint32ToIP(lsa.LinkStateID),
+			AdvRouter:   Uint32ToIP(lsa.AdvRouter),
+			LSSeqNumber: lsa.LSSeqNumber,
+			LSChecksum:  lsa.LSChecksum,
+			Length:      lsa.Length,
 		}
 	}
 
@@ -142,26 +143,35 @@ func (p *OSPFParser) parseDDPacket(content interface{}, ospfPkt *OSPFPacket) err
 // 添加LSR包解析函数
 func (p *OSPFParser) parseLSRPacket(content interface{}, ospfPkt *OSPFPacket) error {
 	// 尝试类型断言
-	lsr, ok := content.(*layers.LSReq)
+	lsrs, ok := content.([]layers.LSReq)
 	if !ok {
-		return fmt.Errorf("invalid LSR packet content: unknown type %T", content)
+		return fmt.Errorf("invalid LSR packet content: convert failed\n")
 	}
 
+	if len(lsrs) <= 0 {
+		return fmt.Errorf("LSReq slice is empty")
+	}
+
+	//创建LSRFields对象
 	ospfPkt.LSRFields = &LSRFields{
-		LSARequests: []LSARequest{
-			{
-				LSType:            lsr.LSType,
-				LSID:              Uint32ToIP(lsr.LSID),
-				AdvertisingRouter: Uint32ToIP(lsr.AdvRouter),
-			},
-		},
+		LSARequests: make([]LSARequest, len(lsrs)),
+	}
+
+	//遍历LSR数组
+	for i, lsr := range lsrs {
+		v := LSARequest{
+			LSType:    lsr.LSType,
+			LSID:      Uint32ToIP(lsr.LSID),
+			AdvRouter: Uint32ToIP(lsr.AdvRouter),
+		}
+		ospfPkt.LSRFields.LSARequests[i] = v
 	}
 
 	return nil
 }
 
 func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) error {
-	lsu, ok := content.(*layers.LSUpdate)
+	lsu, ok := content.(layers.LSUpdate)
 	if !ok {
 		return fmt.Errorf("invalid LSU packet content: unknown type %T", content)
 	}
@@ -175,16 +185,16 @@ func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) er
 	for _, lsa := range lsu.LSAs {
 		newLSA := LSAFields{
 			Header: LSAHeader{
-				Age:               lsa.LSAheader.LSAge,
-				Options:           lsa.LSAheader.LSOptions,
-				Type:              lsa.LSAheader.LSType,
-				LSID:              Uint32ToIP(lsa.LSAheader.LinkStateID),
-				AdvertisingRouter: Uint32ToIP(lsa.LSAheader.AdvRouter),
-				SequenceNum:       lsa.LSAheader.LSSeqNumber,
-				Checksum:          lsa.LSAheader.LSChecksum,
-				Length:            lsa.LSAheader.Length,
+				LSAge:       lsa.LSAheader.LSAge,
+				LSOptions:   lsa.LSAheader.LSOptions,
+				LSType:      lsa.LSAheader.LSType,
+				LinkStateID: Uint32ToIP(lsa.LSAheader.LinkStateID),
+				AdvRouter:   Uint32ToIP(lsa.LSAheader.AdvRouter),
+				LSSeqNumber: lsa.LSAheader.LSSeqNumber,
+				LSChecksum:  lsa.LSAheader.LSChecksum,
+				Length:      lsa.LSAheader.Length,
 			},
-			Content: lsa.Content,
+			//Content: lsa.Content, //TODO:
 		}
 		ospfPkt.LSUFields.LSAs = append(ospfPkt.LSUFields.LSAs, newLSA)
 	}
@@ -207,14 +217,14 @@ func (p *OSPFParser) parseLSAckPacket(content interface{}, ospfPkt *OSPFPacket) 
 	// 解析每个LSA header
 	for i, header := range lsaHeaders {
 		ospfPkt.LSAckFields.LSAHeaders[i] = LSAHeader{
-			Age:               header.LSAge,
-			Options:           header.LSOptions,
-			Type:              header.LSType,
-			LSID:              Uint32ToIP(header.LinkStateID),
-			AdvertisingRouter: Uint32ToIP(header.AdvRouter),
-			SequenceNum:       header.LSSeqNumber,
-			Checksum:          header.LSChecksum,
-			Length:            header.Length,
+			LSAge:       header.LSAge,
+			LSOptions:   header.LSOptions,
+			LSType:      header.LSType,
+			LinkStateID: Uint32ToIP(header.LinkStateID),
+			AdvRouter:   Uint32ToIP(header.AdvRouter),
+			LSSeqNumber: header.LSSeqNumber,
+			LSChecksum:  header.LSChecksum,
+			Length:      header.Length,
 		}
 	}
 
