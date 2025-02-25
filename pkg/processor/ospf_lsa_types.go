@@ -23,3 +23,17 @@ type RouterLSAV2 struct {
 	Links   uint16
 	Routers []RouterV2
 }
+
+type ASExternalLSAV2 struct {
+	NetworkMask       uint32
+	ExternalBit       uint8
+	Metric            uint32
+	ForwardingAddress uint32
+	ExternalRouteTag  uint32
+}
+
+// NetworkLSAV2 is the struct from RFC 2328  A.4.3.
+type NetworkLSAV2 struct {
+	NetworkMask    uint32
+	AttachedRouter []uint32
+}

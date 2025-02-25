@@ -194,8 +194,51 @@ func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) er
 				LSChecksum:  lsa.LSAheader.LSChecksum,
 				Length:      lsa.LSAheader.Length,
 			},
-			//Content: lsa.Content, //TODO:
 		}
+
+		switch lsa.LSAheader.LSType {
+		case RouterLSAtypeV2:
+			//router lsa
+			routerLSAInfo, ok := content.(layers.RouterLSAV2)
+			if !ok {
+				return fmt.Errorf("invalid LSU packet content: unknown RouterLSAtypeV2 type")
+			}
+			newLSA.RouterLsa.Flags = routerLSAInfo.Flags
+			newLSA.RouterLsa.Links = routerLSAInfo.Links
+			for _, r := range routerLSAInfo.Routers {
+				router := RouterV2{
+					Type:     r.Type,
+					LinkID:   r.LinkID,
+					LinkData: r.LinkData,
+					Metric:   r.Metric,
+				}
+				newLSA.RouterLsa.Routers = append(newLSA.RouterLsa.Routers, router)
+			}
+		case NSSALSAtypeV2:
+			fallthrough
+		case ASExternalLSAtypeV2:
+			asExLsaInfo, ok := content.(layers.ASExternalLSAV2)
+			if !ok {
+				return fmt.Errorf("invalid LSU packet content: unknown ASExternalLSAtypeV2 type")
+			}
+			newLSA.ASExternalLsa.NetworkMask = asExLsaInfo.NetworkMask
+			newLSA.ASExternalLsa.ExternalBit = asExLsaInfo.ExternalBit
+			newLSA.ASExternalLsa.Metric = asExLsaInfo.Metric
+			newLSA.ASExternalLsa.ForwardingAddress = asExLsaInfo.ForwardingAddress
+			newLSA.ASExternalLsa.ExternalRouteTag = asExLsaInfo.ExternalRouteTag
+
+		case NetworkLSAtypeV2:
+			//network lsa
+			networkLsaInfo, ok := content.(layers.NetworkLSAV2)
+			if !ok {
+				return fmt.Errorf("invalid LSU packet content: unknown NetworkLSAtypeV2 type")
+			}
+			newLSA.NetworkLsa.NetworkMask = networkLsaInfo.NetworkMask
+			for _, r := range networkLsaInfo.AttachedRouter {
+				newLSA.NetworkLsa.AttachedRouter = append(newLSA.NetworkLsa.AttachedRouter, r)
+			}
+		}
+
 		ospfPkt.LSUFields.LSAs = append(ospfPkt.LSUFields.LSAs, newLSA)
 	}
 
@@ -204,7 +247,7 @@ func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) er
 
 // 添加LSAck包解析函数
 func (p *OSPFParser) parseLSAckPacket(content interface{}, ospfPkt *OSPFPacket) error {
-	// 类型断言为[]LSAheader
+	// 类型断言为[]LSAheader,是切片类型
 	lsaHeaders, ok := content.([]layers.LSAheader)
 	if !ok {
 		return fmt.Errorf("invalid LSAck packet content: unknown type %T", content)

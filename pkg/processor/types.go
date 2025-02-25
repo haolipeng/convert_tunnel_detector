@@ -171,8 +171,10 @@ type LSAInfo struct {
 }
 
 type LSAFields struct {
-	Header  LSAHeader
-	Content LSAInfo
+	Header        LSAHeader
+	RouterLsa     RouterLSAV2
+	ASExternalLsa ASExternalLSAV2
+	NetworkLsa    NetworkLSAV2
 }
 
 type LSAckFields struct {
