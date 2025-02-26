@@ -2,7 +2,7 @@ package processor
 
 import (
 	"fmt"
-	"github.com/google/gopacket/layers"
+	"github.com/haolipeng/gopacket/layers"
 	"github.com/sirupsen/logrus"
 	"net"
 )
@@ -196,52 +196,72 @@ func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) er
 			},
 		}
 
-		switch lsa.LSAheader.LSType {
-		case RouterLSAtypeV2:
-			//router lsa
-			routerLSAInfo, ok := content.(layers.RouterLSAV2)
-			if !ok {
-				return fmt.Errorf("invalid LSU packet content: unknown RouterLSAtypeV2 type")
-			}
-			newLSA.RouterLsa.Flags = routerLSAInfo.Flags
-			newLSA.RouterLsa.Links = routerLSAInfo.Links
-			for _, r := range routerLSAInfo.Routers {
-				router := RouterV2{
-					Type:     r.Type,
-					LinkID:   r.LinkID,
-					LinkData: r.LinkData,
-					Metric:   r.Metric,
-				}
-				newLSA.RouterLsa.Routers = append(newLSA.RouterLsa.Routers, router)
-			}
-		case NSSALSAtypeV2:
-			fallthrough
-		case ASExternalLSAtypeV2:
-			asExLsaInfo, ok := content.(layers.ASExternalLSAV2)
-			if !ok {
-				return fmt.Errorf("invalid LSU packet content: unknown ASExternalLSAtypeV2 type")
-			}
-			newLSA.ASExternalLsa.NetworkMask = asExLsaInfo.NetworkMask
-			newLSA.ASExternalLsa.ExternalBit = asExLsaInfo.ExternalBit
-			newLSA.ASExternalLsa.Metric = asExLsaInfo.Metric
-			newLSA.ASExternalLsa.ForwardingAddress = asExLsaInfo.ForwardingAddress
-			newLSA.ASExternalLsa.ExternalRouteTag = asExLsaInfo.ExternalRouteTag
-
-		case NetworkLSAtypeV2:
-			//network lsa
-			networkLsaInfo, ok := content.(layers.NetworkLSAV2)
-			if !ok {
-				return fmt.Errorf("invalid LSU packet content: unknown NetworkLSAtypeV2 type")
-			}
-			newLSA.NetworkLsa.NetworkMask = networkLsaInfo.NetworkMask
-			for _, r := range networkLsaInfo.AttachedRouter {
-				newLSA.NetworkLsa.AttachedRouter = append(newLSA.NetworkLsa.AttachedRouter, r)
-			}
+		err := p.extractLSAInformation(content, lsa, &newLSA)
+		if err != nil {
+			return err
 		}
 
 		ospfPkt.LSUFields.LSAs = append(ospfPkt.LSUFields.LSAs, newLSA)
 	}
 
+	return nil
+}
+
+func (p *OSPFParser) extractLSAInformation(content interface{}, lsa layers.LSA, newLSA *LSAFields) error {
+	switch lsa.LSAheader.LSType {
+	case RouterLSAtypeV2: //1
+		//router lsa
+		routerLSAInfo, ok := content.(layers.RouterLSAV2)
+		if !ok {
+			return fmt.Errorf("invalid LSU packet content: unknown RouterLSAtypeV2 type")
+		}
+		newLSA.RouterLsa.Flags = routerLSAInfo.Flags
+		newLSA.RouterLsa.Links = routerLSAInfo.Links
+		for _, r := range routerLSAInfo.Routers {
+			router := RouterV2{
+				Type:     r.Type,
+				LinkID:   r.LinkID,
+				LinkData: r.LinkData,
+				Metric:   r.Metric,
+			}
+			newLSA.RouterLsa.Routers = append(newLSA.RouterLsa.Routers, router)
+		}
+	case NSSALSAtypeV2: //7
+		//NSSA-LSA，由NSSA的ASBR产生，仅在本NSSA内传播。格式与Type5相同
+		//所以使用fallthrough
+		fallthrough
+	case ASExternalLSAtypeV2: //5
+		asExLsaInfo, ok := content.(layers.ASExternalLSAV2)
+		if !ok {
+			return fmt.Errorf("invalid LSU packet content: unknown ASExternalLSAtypeV2 type")
+		}
+		newLSA.ASExternalLsa.NetworkMask = asExLsaInfo.NetworkMask
+		newLSA.ASExternalLsa.ExternalBit = asExLsaInfo.ExternalBit
+		newLSA.ASExternalLsa.Metric = asExLsaInfo.Metric
+		newLSA.ASExternalLsa.ForwardingAddress = asExLsaInfo.ForwardingAddress
+		newLSA.ASExternalLsa.ExternalRouteTag = asExLsaInfo.ExternalRouteTag
+
+	case NetworkLSAtypeV2: //2
+		//network lsa
+		networkLsaInfo, ok := content.(layers.NetworkLSAV2)
+		if !ok {
+			return fmt.Errorf("invalid LSU packet content: unknown NetworkLSAtypeV2 type")
+		}
+		newLSA.NetworkLsa.NetworkMask = networkLsaInfo.NetworkMask
+		for _, r := range networkLsaInfo.AttachedRouter {
+			newLSA.NetworkLsa.AttachedRouter = append(newLSA.NetworkLsa.AttachedRouter, r)
+		}
+	case SummaryLSANetworktypeV2: //3
+		//Network-summary-LSA，描述区域内所有网段的路由，并通告给其他相关区域。
+		//Type3和Type4的LSA有相同的格式
+		fallthrough
+	case SummaryLSAASBRtypeV2: //4
+		logrus.Errorf("SummaryLSANetworktypeV2 and SummaryLSAASBRtypeV2 is not supported!\n")
+		return fmt.Errorf("SummaryLSANetworktypeV2 and SummaryLSAASBRtypeV2 is not supported!\n")
+	default:
+		logrus.Errorf("Unknown LSA type, please fix it!\n")
+		return fmt.Errorf("unknown LSA type, please fix it\n")
+	}
 	return nil
 }
 

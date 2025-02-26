@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"github.com/haolipeng/gopacket"
+	"github.com/haolipeng/gopacket/pcap"
 	"github.com/sirupsen/logrus"
 )
 

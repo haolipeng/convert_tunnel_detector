@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/google/gopacket/layers"
+	"github.com/haolipeng/gopacket/layers"
 )
 
 // DD包的Interface MTU标志位

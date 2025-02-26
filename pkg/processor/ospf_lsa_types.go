@@ -37,3 +37,11 @@ type NetworkLSAV2 struct {
 	NetworkMask    uint32
 	AttachedRouter []uint32
 }
+
+type SummaryLSAV2 struct {
+	LinkStateID uint32
+	NetworkMask uint32
+	Metric      uint32
+	Tos         uint8
+	TosMetric   uint32
+}

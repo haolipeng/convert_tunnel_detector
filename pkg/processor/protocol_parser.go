@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"github.com/haolipeng/gopacket"
+	"github.com/haolipeng/gopacket/layers"
 	"github.com/sirupsen/logrus"
 )
 

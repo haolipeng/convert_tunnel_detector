@@ -3,11 +3,11 @@ package source
 import (
 	"context"
 	"fmt"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"github.com/haolipeng/gopacket"
+	"github.com/haolipeng/gopacket/pcap"
 	"github.com/sirupsen/logrus"
 	"sync"
 	"time"
