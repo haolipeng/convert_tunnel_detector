@@ -1,0 +1,10 @@
+rules:
+  network_mask_check:
+    description: "检查网络掩码"
+    expression: 'ospf.hello.network_mask == "255.255.255.0" && ospf.hello.hello_interval == 10'
+    severity: "warning"
+
+  hello_interval_check:
+    description: "检查Hello间隔"
+    expression: 'ospf.hello.hello_interval == 12'
+    severity: "warning"
