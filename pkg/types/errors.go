@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 type PipelineError struct {
 	Stage string
@@ -14,3 +17,7 @@ func (e *PipelineError) Error() string {
 func NewPipelineError(stage string, err error) error {
 	return &PipelineError{Stage: stage, Err: err}
 }
+
+var (
+	ErrProcessorNotReady = errors.New("processor is not ready")
+)

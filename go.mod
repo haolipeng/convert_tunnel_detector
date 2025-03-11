@@ -1,6 +1,6 @@
 module github.com/haolipeng/convert_tunnel_detector
 
-go 1.21.1
+go 1.24.0
 
 require (
 	github.com/google/cel-go v0.24.1

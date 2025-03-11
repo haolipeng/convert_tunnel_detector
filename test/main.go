@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
+
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/checker/decls"
 	"gopkg.in/yaml.v2"
-	"log"
-	"os"
 )
 
 // OSPFPacket OSPF报文结构定义
