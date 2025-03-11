@@ -15,7 +15,7 @@ output:
 
 source:
   type: "file"  # "file" 或 "live"
-  filename: "ospf_lsu_haolipeng.pcap"  # 当 type 为 "file" 时使用
+  filename: "ospf.pcap"  # 当 type 为 "file" 时使用
   interface:  # 当 type 为 "live" 时使用
     name: "ens34"
     snaplen: 65535

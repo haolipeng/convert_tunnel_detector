@@ -25,6 +25,7 @@ type OSPFPacket struct {
 	SourceIP  net.IP    //源ip
 	DestIP    net.IP    //目的ip
 
+	// OSPF通用头部字段
 	Version      uint8           //版本，ipv4或ipv6
 	SubType      layers.OSPFType //协议子类型
 	PacketLength uint16          //数据包长度
@@ -34,6 +35,7 @@ type OSPFPacket struct {
 	AuType       uint16          //认证类型
 	//鉴定字段，其数值根据验证类型而定： 当验证类型为0时未作定义。 类型为1时此字段为密码信息。 类型为2时此字段包括Key ID、验证数据长度和序列号的信息。
 	Authentication uint64
+
 	//////////////////////通过SubType类明确如下字段哪些是可用状态/////////////////////////
 	HelloFields *HelloFields // Hello包特有字段
 

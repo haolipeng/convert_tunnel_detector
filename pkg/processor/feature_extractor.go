@@ -3,10 +3,11 @@ package processor
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
-	"sync"
 )
 
 type BasicFeatureExtractor struct {
@@ -51,7 +52,7 @@ func (p *BasicFeatureExtractor) Process(ctx context.Context, in <-chan *types.Pa
 					continue
 				}
 
-				// TODO:提取基础特征
+				// TODO:提取基础特征,没做任何事情，单纯将数据包转发给下一个处理器
 
 				select {
 				case out <- packet:

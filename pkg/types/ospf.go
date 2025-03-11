@@ -4,7 +4,7 @@ package types
 type OSPFPacket struct {
 	// OSPF通用头部字段
 	Version   uint8  // 版本号
-	Type      uint8  // 消息类型
+	Type      uint8  // 消息类型,决定包的类型，比如ospf、igmp、rip、pim、icmp等
 	PacketLen uint16 // 报文长度
 	SrcRouter string // 源路由器
 	AreaID    string // 区域ID
@@ -12,16 +12,20 @@ type OSPFPacket struct {
 	AuType    uint16 // 认证类型
 	Auth      []byte // 认证数据
 
+	// ospf	v2子类型包的字段
+	Data interface{} // 根据Type字段确定具体类型
+}
+
+// OSPFPacketV2 Hello包字段
+type OSPFPacketV2 struct {
 	// Hello包字段
 	NetworkMask   string // 网络掩码
 	HelloInterval uint16 // Hello间隔
 	Priority      uint8  // 路由器优先级
+	Options       uint8  // 选项
 	DeadInterval  uint32 // 失效间隔
 	DR            string // 指定路由器
 	BDR           string // 备用指定路由器
-
-	// 其他类型包的数据
-	Data interface{} // 根据Type字段确定具体类型
 }
 
 // OSPFDDPacket 数据库描述包

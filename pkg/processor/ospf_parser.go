@@ -2,9 +2,10 @@ package processor
 
 import (
 	"fmt"
+	"net"
+
 	"github.com/haolipeng/gopacket/layers"
 	"github.com/sirupsen/logrus"
-	"net"
 )
 
 type OSPFParser struct {
@@ -15,11 +16,14 @@ func NewOSPFParser() *OSPFParser {
 	return &OSPFParser{}
 }
 
+// parsePacketV3 解析OSPFv3包
 func (p *OSPFParser) parsePacketV3(ip *layers.IPv4, ospf *layers.OSPFv3) (*OSPFPacket, error) {
 	//TODO:need implement me
 	var err error
 	return nil, err
 }
+
+// parsePacketV2 解析OSPFv2包
 func (p *OSPFParser) parsePacketV2(ip *layers.IPv4, ospf *layers.OSPFv2) (*OSPFPacket, error) {
 	// 创建基础OSPFPacket
 	ospfPkt := &OSPFPacket{
@@ -37,33 +41,34 @@ func (p *OSPFParser) parsePacketV2(ip *layers.IPv4, ospf *layers.OSPFv2) (*OSPFP
 
 	// 根据包类型解析具体内容
 	switch ospf.Type {
-	case layers.OSPFHello:
+	case layers.OSPFHello: //解析Hello包
 		if err := p.parseHelloPacket(ospf.Content, ospfPkt); err != nil {
 			return nil, err
 		}
-	case layers.OSPFDatabaseDescription:
+	case layers.OSPFDatabaseDescription: //解析DD包
 		if err := p.parseDDPacket(ospf.Content, ospfPkt); err != nil {
 			return nil, err
 		}
-	case layers.OSPFLinkStateRequest:
+	case layers.OSPFLinkStateRequest: //解析LSR包
 		if err := p.parseLSRPacket(ospf.Content, ospfPkt); err != nil {
 			return nil, err
 		}
-	case layers.OSPFLinkStateUpdate:
+	case layers.OSPFLinkStateUpdate: //解析LSU包
 		if err := p.parseLSUPacket(ospf.Content, ospfPkt); err != nil {
 			return nil, err
 		}
-	case layers.OSPFLinkStateAcknowledgment:
+	case layers.OSPFLinkStateAcknowledgment: //解析LSAck包
 		if err := p.parseLSAckPacket(ospf.Content, ospfPkt); err != nil {
 			return nil, err
 		}
-	default:
-		logrus.Errorf("this OSPF packet is not supported!")
+	default: //不支持的包类型,记录日志
+		logrus.Errorf("this OSPF packet is not supported! please fix it!\n")
 	}
 
 	return ospfPkt, nil
 }
 
+// parseHelloPacket 解析Hello包内容
 func (p *OSPFParser) parseHelloPacket(content interface{}, ospfPkt *OSPFPacket) error {
 	// 首先尝试HelloPkgV2类型
 	if hello, ok := content.(layers.HelloPkgV2); ok {
@@ -145,7 +150,7 @@ func (p *OSPFParser) parseLSRPacket(content interface{}, ospfPkt *OSPFPacket) er
 	// 尝试类型断言
 	lsrs, ok := content.([]layers.LSReq)
 	if !ok {
-		return fmt.Errorf("invalid LSR packet content: convert failed\n")
+		return fmt.Errorf("invalid LSR packet content: convert failed")
 	}
 
 	if len(lsrs) <= 0 {
@@ -170,6 +175,7 @@ func (p *OSPFParser) parseLSRPacket(content interface{}, ospfPkt *OSPFPacket) er
 	return nil
 }
 
+// parseLSUPacket 解析LSU包内容
 func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) error {
 	lsu, ok := content.(layers.LSUpdate)
 	if !ok {
@@ -207,6 +213,7 @@ func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) er
 	return nil
 }
 
+// extractLSAInformation 提取LSA信息
 func (p *OSPFParser) extractLSAInformation(content interface{}, lsa layers.LSA, newLSA *LSAFields) error {
 	switch lsa.LSAheader.LSType {
 	case RouterLSAtypeV2: //1
@@ -248,19 +255,17 @@ func (p *OSPFParser) extractLSAInformation(content interface{}, lsa layers.LSA, 
 			return fmt.Errorf("invalid LSU packet content: unknown NetworkLSAtypeV2 type")
 		}
 		newLSA.NetworkLsa.NetworkMask = networkLsaInfo.NetworkMask
-		for _, r := range networkLsaInfo.AttachedRouter {
-			newLSA.NetworkLsa.AttachedRouter = append(newLSA.NetworkLsa.AttachedRouter, r)
-		}
+		newLSA.NetworkLsa.AttachedRouter = append(newLSA.NetworkLsa.AttachedRouter, networkLsaInfo.AttachedRouter...)
 	case SummaryLSANetworktypeV2: //3
 		//Network-summary-LSA，描述区域内所有网段的路由，并通告给其他相关区域。
 		//Type3和Type4的LSA有相同的格式
 		fallthrough
 	case SummaryLSAASBRtypeV2: //4
-		logrus.Errorf("SummaryLSANetworktypeV2 and SummaryLSAASBRtypeV2 is not supported!\n")
-		return fmt.Errorf("SummaryLSANetworktypeV2 and SummaryLSAASBRtypeV2 is not supported!\n")
+		logrus.Errorf("SummaryLSANetworktypeV2 and SummaryLSAASBRtypeV2 is not supported\n")
+		return fmt.Errorf("SummaryLSANetworktypeV2 and SummaryLSAASBRtypeV2 is not supported")
 	default:
-		logrus.Errorf("Unknown LSA type, please fix it!\n")
-		return fmt.Errorf("unknown LSA type, please fix it\n")
+		logrus.Errorf("Unknown LSA type, please fix it\n")
+		return fmt.Errorf("unknown LSA type, please fix it")
 	}
 	return nil
 }

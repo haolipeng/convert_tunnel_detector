@@ -41,17 +41,16 @@ func (p *ProtocolParser) Process(ctx context.Context, dataCh <-chan *types.Packe
 	go func() {
 		defer wg.Done()
 		defer logrus.Debugf("ProtocolParser stopped")
+		defer close(out) // 不要忘记关闭channel通道
 
 		for {
 			select {
 			case <-ctx.Done():
 				logrus.Info("Stopping protocol parser: context cancellation")
-				close(out)
 				return
 			case packet, ok := <-dataCh:
 				if !ok {
 					logrus.Info("Stopping protocol parser: dataCh channel closed")
-					close(out)
 					return
 				}
 
@@ -88,7 +87,6 @@ func (p *ProtocolParser) Process(ctx context.Context, dataCh <-chan *types.Packe
 					logrus.Debugf("Worker processed packet %s in %v", packet.ID, duration)
 				case <-ctx.Done():
 					logrus.Infof("Worker: context cancelled while sending result")
-					close(out)
 					return
 				default:
 					logrus.Warnf("Worker: output channel full, dropping packet %s", packet.ID)
@@ -96,9 +94,6 @@ func (p *ProtocolParser) Process(ctx context.Context, dataCh <-chan *types.Packe
 				}
 			}
 		}
-
-		//不要忘记关闭channel通道
-		close(out)
 	}()
 
 	return out, nil
@@ -116,6 +111,7 @@ func (p *ProtocolParser) parsePacket(packetData *types.Packet) (*types.Packet, e
 		return nil, nil
 	}
 
+	// 创建数据包解析器
 	packet := gopacket.NewPacket(packetData.RawData, layers.LayerTypeEthernet, gopacket.Default)
 
 	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {

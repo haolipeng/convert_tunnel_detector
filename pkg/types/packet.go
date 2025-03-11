@@ -16,6 +16,7 @@ type Packet struct {
 	Data []byte // 原始数据
 }
 
+// PacketType 表示数据包类型
 type PacketType uint8
 
 const (
@@ -24,10 +25,6 @@ const (
 	IGMP PacketType = 3 //IGMP报文
 	ICMP PacketType = 4 //ICMP报文
 )
-
-type PacketResult interface {
-	GetType() PacketType
-}
 
 // Stage 表示处理阶段的状态
 type Stage int
@@ -40,3 +37,7 @@ const (
 	StageFSMEngineDetection                         //状态机引擎检测阶段
 	StateBaselineDetection                          //基线引擎检测阶段
 )
+
+type PacketResult interface {
+	GetType() PacketType
+}

@@ -70,8 +70,7 @@ func InitLogger(cfg *config.Config) error {
 	}
 
 	//3、日志切割功能，按时间来切割
-	var osVersion string
-	osVersion = runtime.GOOS
+	osVersion := runtime.GOOS
 	if osVersion == "windows" {
 		logWriter, err = rotates.New(
 			logFileName+".%Y%m%d%H%M",
@@ -123,7 +122,7 @@ func main() {
 	loader := ruleEngine.NewRuleLoader()
 
 	// 加载规则文件
-	err = loader.LoadRuleFromFile("test/rules.yaml")
+	err = loader.LoadRuleFromFile("rules/ospf_rules.yaml")
 	if err != nil {
 		logrus.Fatalf("Failed to load rules: %v", err)
 	}
@@ -172,6 +171,18 @@ func main() {
 	err = p.AddProcessor(processor.NewBasicFeatureExtractor(cfg.Pipeline.WorkerCount, cfg))
 	if err != nil {
 		logrus.Errorf("Add Basic Feature Extractor Failed: %s\n", err)
+		return
+	}
+
+	// 添加规则引擎处理器
+	ruleEngine, err := processor.NewRuleEngineProcessor(cfg.Pipeline.WorkerCount, cfg)
+	if err != nil {
+		logrus.Errorf("Create Rule Engine Processor Failed: %s\n", err)
+		return
+	}
+	err = p.AddProcessor(ruleEngine)
+	if err != nil {
+		logrus.Errorf("Add Rule Engine Processor Failed: %s\n", err)
 		return
 	}
 
