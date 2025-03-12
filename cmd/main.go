@@ -17,7 +17,6 @@ import (
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/pipeline"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/processor"
-	"github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/sink"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/source"
 )
@@ -116,15 +115,6 @@ func main() {
 	if err := InitLogger(cfg); err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
-	}
-
-	// 创建规则加载器
-	loader := ruleEngine.NewRuleLoader()
-
-	// 加载规则文件
-	err = loader.LoadRuleFromFile("rules/ospf_rules.yaml")
-	if err != nil {
-		logrus.Fatalf("Failed to load rules: %v", err)
 	}
 
 	// 开始启动隐蔽隧道检测器

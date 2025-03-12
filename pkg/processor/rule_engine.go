@@ -3,7 +3,6 @@ package processor
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/google/cel-go/cel"
@@ -23,8 +22,8 @@ const (
 
 type RuleEngine struct {
 	env           *cel.Env
-	rules         map[int]*ruleEngine.Rule
-	compiledRules map[int]cel.Program // 预编译的规则程序
+	rules         map[string]map[int]*ruleEngine.ProtocolRule
+	compiledRules map[string]map[int]cel.Program // 预编译的规则程序,第一层key为协议名,第二层key为协议子类型
 }
 
 func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
@@ -68,13 +67,22 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 		return nil, fmt.Errorf("create cel env failed: %v", err)
 	}
 
-	ruleMap := make(map[int]*ruleEngine.Rule)
-	compiledRules := make(map[int]cel.Program)
+	ruleMap := make(map[string]map[int]*ruleEngine.ProtocolRule)
+	//编译后的规则列表
+	compiledRules := make(map[string]map[int]cel.Program)
 
 	// 遍历所有规则
 	for ruleID, rule := range rules {
+		// 确保协议类型的map已初始化
+		if _, exists := ruleMap[rule.RuleProtocol]; !exists {
+			ruleMap[rule.RuleProtocol] = make(map[int]*ruleEngine.ProtocolRule)
+		}
+		if _, exists := compiledRules[rule.RuleProtocol]; !exists {
+			compiledRules[rule.RuleProtocol] = make(map[int]cel.Program)
+		}
+
 		// 遍历每个规则的 ProtocolRules,ruleTag为规则标签，比如HELLO、DD、LSR、LSU、LSAck
-		for ruleTag := range rule.ProtocolRules {
+		for ruleTag, ruleInfo := range rule.ProtocolRules {
 			var ruleType int
 			switch ruleTag {
 			case "HELLO":
@@ -97,8 +105,12 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 				return nil, fmt.Errorf("compile rule failed for rule %s, type %d: %v", ruleID, ruleType, err)
 			}
 
-			ruleMap[ruleType] = rule
-			compiledRules[ruleType] = program
+			ruleMap[rule.RuleProtocol][ruleType] = &ruleEngine.ProtocolRule{
+				Expression:  ruleInfo.Expression,
+				Description: ruleInfo.Description,
+				Type:        ruleInfo.Type,
+			}
+			compiledRules[rule.RuleProtocol][ruleType] = program
 		}
 	}
 
@@ -119,23 +131,25 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 
 		for packet := range in {
 			// 根据packet类型获取对应的规则和预编译程序
-			if matchRule, exists := r.rules[int(packet.Type)]; exists {
-				if program, ok := r.compiledRules[int(packet.Type)]; ok {
-					// 构建评估变量
-					vars := buildEvalVars(packet)
+			if _, exists := r.rules[packet.Protocol]; exists {
+				if programs, ok := r.compiledRules[packet.Protocol]; ok {
+					if program, ok := programs[int(packet.SubType)]; ok {
+						// 构建评估变量
+						vars := buildEvalVars(packet)
 
-					// 执行规则匹配
-					result, err := r.evaluateRule(program, vars)
-					if err != nil {
-						// 记录错误但继续处理
-						packet.Error = fmt.Errorf("rule evaluation failed: %v", err)
-						continue
-					}
+						// 执行规则匹配
+						result, err := r.evaluateRule(program, vars)
+						if err != nil {
+							// 记录错误但继续处理
+							packet.Error = fmt.Errorf("rule evaluation failed: %v", err)
+							continue
+						}
 
-					// 设置匹配结果
-					packet.RuleResult = &types.RuleMatchResult{
-						Matched: result,
-						Rule:    matchRule,
+						// 设置匹配结果
+						packet.RuleResult = &types.RuleMatchResult{
+							Matched: result,
+							Rule:    nil, //TODO:
+						}
 					}
 				}
 			}
@@ -149,64 +163,87 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 // buildEvalVars 根据数据包构建评估变量
 func buildEvalVars(packet *types.Packet) map[string]interface{} {
 	// 从packet中提取OSPF字段
-	ospfPacket, ok := packet.ParserResult.(*types.OSPFPacket)
+	ospfPacket, ok := packet.ParserResult.(*OSPFPacket)
 	if !ok {
 		return nil
 	}
 
 	vars := map[string]interface{}{
 		// OSPF通用头部字段
-		"ospf.version":       int64(ospfPacket.Version),
-		"ospf.msg":           int64(packet.Type),
-		"ospf.packet_length": int64(ospfPacket.PacketLen),
-		"ospf.srcrouter":     ospfPacket.SrcRouter,
-		"ospf.area_id":       ospfPacket.AreaID,
+		"ospf.version":       int8(ospfPacket.Version),
+		"ospf.msg":           int8(packet.SubType),
+		"ospf.packet_length": uint16(ospfPacket.PacketLength),
+		"ospf.srcrouter":     ospfPacket.RouterID.String(),
+		"ospf.area_id":       ospfPacket.AreaID.String(),
 		"ospf.checksum":      int64(ospfPacket.Checksum),
 		"ospf.auth.type":     int64(ospfPacket.AuType),
-		"ospf.auth":          string(ospfPacket.Auth),
+		"ospf.auth.none":     string(ospfPacket.Authentication),
 	}
 
 	// 根据包类型添加特定字段
-	switch packet.Type {
+	switch packet.SubType {
 	case OSPFTypeHello:
-		//添加Hello包特有字段
-		if hello, ok := ospfPacket.Data.(*types.OSPFPacketV2); ok {
-			vars["ospf.hello.network_mask"] = hello.NetworkMask
-			vars["ospf.hello.hello_interval"] = int64(hello.HelloInterval)
-			vars["ospf.hello.router_priority"] = int64(hello.Priority)
-			vars["ospf.hello.router_dead_interval"] = int64(hello.DeadInterval)
-			vars["ospf.hello.designated_router"] = hello.DR
-			vars["ospf.hello.backup_designated_router"] = hello.BDR
-			vars["ospf.v2.options"] = int64(hello.Options)
+		// 添加Hello包特有字段
+		if ospfPacket.HelloFields != nil {
+			vars["ospf.hello.network_mask"] = ospfPacket.HelloFields.NetworkMask.String()
+			vars["ospf.hello.hello_interval"] = uint16(ospfPacket.HelloFields.HelloInterval)
+			vars["ospf.hello.router_priority"] = uint8(ospfPacket.HelloFields.Priority)
+			vars["ospf.hello.router_dead_interval"] = uint32(ospfPacket.HelloFields.DeadInterval)
+			vars["ospf.hello.designated_router"] = ospfPacket.HelloFields.DesignatedRouter.String()
+			vars["ospf.hello.backup_designated_router"] = ospfPacket.HelloFields.BackupDesignatedRouter.String()
+			vars["ospf.v2.options"] = int64(ospfPacket.HelloFields.Options)
 		}
 
 	case OSPFTypeDD:
 		// 添加DD包特有字段
-		if dd, ok := ospfPacket.Data.(*types.OSPFDDPacket); ok {
-			vars["ospf.db.interface_mtu"] = int64(dd.InterfaceMTU)
-			vars["ospf.v2.options"] = int64(dd.Options)
-			vars["ospf.db.dd_sequence"] = int64(dd.SeqNum)
-			vars["ospf.dbd"] = int8(dd.Flags)
+		if ospfPacket.DDFields != nil {
+			vars["ospf.db.interface_mtu"] = int64(ospfPacket.DDFields.InterfaceMTU)
+			vars["ospf.v2.options"] = int64(ospfPacket.DDFields.Options)
+			vars["ospf.db.dd_sequence"] = int64(ospfPacket.DDFields.DDSequence)
+			vars["ospf.dbd"] = int8(ospfPacket.DDFields.Flags)
 		}
 
 	case OSPFTypeLSR:
 		// 添加LSR包特有字段
-		if lsr, ok := ospfPacket.Data.(*types.OSPFLSRPacket); ok {
-			vars["ospf.link_state_id"] = lsr.LinkStateID
+		if ospfPacket.LSRFields != nil && len(ospfPacket.LSRFields.LSARequests) > 0 {
+			// TODO:这里我们取第一个LSR请求的信息
+			lsr := ospfPacket.LSRFields.LSARequests[0]
+			vars["ospf.link_state_id"] = lsr.LSID.String()
 			vars["ospf.lsa"] = int32(lsr.LSType)
-			vars["ospf.advrouter"] = lsr.AdvRouter
+			vars["ospf.advrouter"] = lsr.AdvRouter.String()
 		}
 
 	case OSPFTypeLSU:
 		// 添加LSU包特有字段
-		if lsu, ok := ospfPacket.Data.(*types.OSPFLSUPacket); ok {
-			vars["ospf.advrouter"] = lsu.AdvRouter
+		if ospfPacket.LSUFields != nil {
+			vars["ospf.ls.number_of_lsas"] = int64(ospfPacket.LSUFields.NumOfLSAs)
+			if len(ospfPacket.LSUFields.LSAs) > 0 {
+				//TODO: 这里我们取第一个LSU的信息
+				lsa := ospfPacket.LSUFields.LSAs[0]
+				vars["ospf.lsa.age"] = uint16(lsa.Header.LSAge)
+				vars["ospf.v2.options"] = uint8(lsa.Header.LSOptions)
+				vars["ospf.lsa"] = uint16(lsa.Header.LSType)
+				vars["ospf.lsa.id"] = lsa.Header.LinkStateID.String()
+				vars["ospf.advrouter"] = lsa.Header.AdvRouter.String()
+				vars["ospf.lsa.seqnum"] = uint32(lsa.Header.LSSeqNumber)
+				vars["ospf.lsa.chksum"] = uint16(lsa.Header.LSChecksum)
+				vars["ospf.lsa.length"] = uint16(lsa.Header.Length)
+			}
 		}
 
 	case OSPFTypeLSAck:
 		// 添加LSAck包特有字段
-		if lsack, ok := ospfPacket.Data.(*types.OSPFLSAckPacket); ok {
-			vars["ospf.lsa.seqnum"] = lsack.LSASequenceNumber
+		if ospfPacket.LSAckFields != nil && len(ospfPacket.LSAckFields.LSAHeaders) > 0 {
+			//TODO: 这里我们取LSAck包的第一个LSA头部的序列号
+			lsa := ospfPacket.LSAckFields.LSAHeaders[0]
+			vars["ospf.lsa.age"] = int64(lsa.LSAge)
+			vars["ospf.v2.options"] = int64(lsa.LSOptions)
+			vars["ospf.lsa"] = int64(lsa.LSType)
+			vars["ospf.lsa.id"] = lsa.LinkStateID.String()
+			vars["ospf.advrouter"] = lsa.AdvRouter.String()
+			vars["ospf.lsa.seqnum"] = int64(lsa.LSSeqNumber)
+			vars["ospf.lsa.chksum"] = int64(lsa.LSChecksum)
+			vars["ospf.lsa.length"] = int64(lsa.Length)
 		}
 	}
 
@@ -214,32 +251,17 @@ func buildEvalVars(packet *types.Packet) map[string]interface{} {
 }
 
 // compileRule 编译CEL规则
-func compileRule(env *cel.Env, rule *ruleEngine.Rule, ruleTag string) (cel.Program, error) {
+func compileRule(env *cel.Env, rule *ruleEngine.Rule, ruleProtocol string) (cel.Program, error) {
 	if rule == nil {
 		return nil, fmt.Errorf("rule is nil")
 	}
 
-	// 获取规则类型对应的所有表达式
-	expressions := make([]string, 0)
-	if rules, ok := rule.ProtocolRules[ruleTag]; ok {
-		for _, r := range rules {
-			expressions = append(expressions, r.Expression)
-		}
+	protocolRule, ok := rule.ProtocolRules[ruleProtocol]
+	if !ok {
+		return nil, fmt.Errorf("no expressions found for rule protocol: %s", ruleProtocol)
 	}
 
-	if len(expressions) == 0 {
-		return nil, fmt.Errorf("no expressions found for rule tag: %s", ruleTag)
-	}
-
-	// 根据规则类型组合表达式
-	var finalExpression string
-	if rule.RuleType == "or" {
-		// 对于or类型，任一表达式为true即可
-		finalExpression = strings.Join(expressions, " || ")
-	} else {
-		// 对于and类型，所有表达式都必须为true
-		finalExpression = strings.Join(expressions, " && ")
-	}
+	finalExpression := protocolRule.Expression
 
 	// 编译表达式
 	ast, iss := env.Compile(finalExpression)
@@ -303,8 +325,8 @@ func NewRuleEngineProcessor(workerCount int, cfg interface{}) (*RuleEngine, erro
 	// 创建规则加载器
 	loader := ruleEngine.NewRuleLoader()
 
-	// 加载规则文件
-	err := loader.LoadRuleFromFile("rules/ospf_rules.yaml")
+	// 从文件夹加载所有协议的黑名单和白名单的规则
+	err := loader.LoadRulesFromDirectory("rules/")
 	if err != nil {
 		return nil, fmt.Errorf("load rules failed: %v", err)
 	}

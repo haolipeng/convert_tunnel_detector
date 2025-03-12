@@ -130,20 +130,38 @@ func (p *ProtocolParser) parsePacket(packetData *types.Packet) (*types.Packet, e
 			//区分是v2还是v3版本
 			if ospfV2, ok := ospfLayer.(*layers.OSPFv2); ok {
 				ospfParser := NewOSPFParser()
-				ospfParser.parsePacketV2(ip, ospfV2) //解析v2版本的ospf协议字段
+				ospfPkt, err := ospfParser.parsePacketV2(ip, ospfV2) //解析v2版本的ospf协议字段
+				if err != nil {
+					return nil, fmt.Errorf("parse OSPFv2 packet failed: %v", err)
+				}
+				// 设置解析结果和协议类型
+				packetData.ParserResult = ospfPkt
+				packetData.Protocol = "ospf"
+				packetData.SubType = uint8(ospfV2.Type)
 			} else if ospfV3, ok := ospfLayer.(*layers.OSPFv3); ok {
 				ospfParser := NewOSPFParser()
-				ospfParser.parsePacketV3(ip, ospfV3) //解析v3版本的ospf协议字段
+				ospfPkt, err := ospfParser.parsePacketV3(ip, ospfV3) //解析v3版本的ospf协议字段
+				if err != nil {
+					return nil, fmt.Errorf("parse OSPFv3 packet failed: %v", err)
+				}
+				// 设置解析结果和协议类型
+				packetData.ParserResult = ospfPkt
+				packetData.Protocol = "ospf"
+				packetData.SubType = uint8(ospfV3.Type)
 			}
 
 		case layers.IPProtocolIGMP:
 			logrus.Info("detect protocol IGMP!")
+			packetData.Protocol = "igmp"
 		case layers.IPProtocolICMPv4:
 			logrus.Info("detect protocol ICMP!")
+			packetData.Protocol = "icmp"
 		case layers.IPProtocolTCP:
 			logrus.Info("detect protocol TCP!")
+			packetData.Protocol = "tcp"
 		case layers.IPProtocolUDP:
 			logrus.Info("detect protocol UDP!")
+			packetData.Protocol = "udp"
 		}
 	} else if ipLayerV6 := packet.Layer(layers.LayerTypeIPv6); ipLayerV6 != nil {
 		//TODO:ipv6 not finished
@@ -151,9 +169,6 @@ func (p *ProtocolParser) parsePacket(packetData *types.Packet) (*types.Packet, e
 		logrus.Warnf("packet type is not ipv4 or ipv6!\n")
 	}
 
-	//TODO:解析成功，则将解析结果进行赋值
-
-	//TODO:这里返回值是有问题的
 	return packetData, nil
 }
 

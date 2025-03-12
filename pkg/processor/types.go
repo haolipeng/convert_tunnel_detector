@@ -5,8 +5,13 @@ import (
 	"net"
 	"time"
 
+	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/haolipeng/gopacket/layers"
 )
+
+type PacketParserResult interface {
+	GetType() uint8
+}
 
 // DD包的Interface MTU标志位
 const (
@@ -15,10 +20,6 @@ const (
 	DDMore                 = 0x04
 	DDMaster               = 0x08
 )
-
-type PacketParserResult interface {
-	GetType() uint8
-}
 
 type OSPFPacket struct {
 	Timestamp time.Time //
@@ -81,14 +82,14 @@ type HelloFields struct {
 }
 
 type LSAHeader struct {
-	LSAge       uint16
-	LSType      uint16
-	LinkStateID net.IP
-	AdvRouter   net.IP
-	LSSeqNumber uint32
-	LSChecksum  uint16
-	Length      uint16
-	LSOptions   uint8
+	LSAge       uint16 //LSA年龄
+	LSType      uint16 //LSA类型
+	LinkStateID net.IP //链路状态ID
+	AdvRouter   net.IP //通告路由器
+	LSSeqNumber uint32 //LSA序列号
+	LSChecksum  uint16 //LSA校验和
+	Length      uint16 //LSA长度
+	LSOptions   uint8  //LSA选项
 }
 
 // IsRouterLSA LSA类型检查方法
@@ -109,11 +110,11 @@ func (h *LSAHeader) IsASExternalLSA() bool {
 }
 
 type DDFields struct {
-	InterfaceMTU uint16
-	Options      uint32
+	InterfaceMTU uint16      //接口MTU
+	Options      uint32      //选项
 	Flags        uint16      // I、M、MS标志位
 	DDSequence   uint32      // DD序列号
-	LSAHeaders   []LSAHeader //
+	LSAHeaders   []LSAHeader //LSA头部列表
 }
 
 // IsMaster 检查是否是Master
@@ -159,8 +160,8 @@ type LSRFields struct {
 
 type LSARequest struct {
 	LSType    uint16 // 改为uint16
-	LSID      net.IP
-	AdvRouter net.IP
+	LSID      net.IP //链路状态ID
+	AdvRouter net.IP //通告路由器
 }
 
 type LSUFields struct {
@@ -210,4 +211,9 @@ func Uint32ToIP(i uint32) net.IP {
 	ip := make(net.IP, 4)
 	binary.BigEndian.PutUint32(ip, i)
 	return ip
+}
+
+// GetType implements the types.PacketResult interface
+func (p *OSPFPacket) GetType() types.PacketType {
+	return types.OSPF
 }

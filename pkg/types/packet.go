@@ -12,8 +12,7 @@ type Packet struct {
 
 	RuleResult *RuleMatchResult // 规则匹配结果
 
-	Type uint8  // OSPF报文类型：1=Hello, 2=DD, 3=LSR, 4=LSU, 5=LSAck
-	Data []byte // 原始数据
+	SubType uint8 // OSPF报文类型：1=Hello, 2=DD, 3=LSR, 4=LSU, 5=LSAck
 }
 
 // PacketType 表示数据包类型

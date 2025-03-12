@@ -1,10 +1,10 @@
 state: enable                         # 规则状态,enable/disable
-rule_id: ospf_1357924680              # 规则ID,以协议名为前缀
+rule_id: ospf_55667788              # 规则ID,以协议名为前缀
 rule_protocol: ospf                   # 规则协议
 rule_tag: ospf,qingteng               # 规则标签,可以有多个，方便规则模板的管理
 rule_name: convert_channal_by_ospf    # 规则名称，每种可能会隐蔽隧道传输的协议用一个配置文件
 rule_type: or                         # or类型规则代表，命中任何一条算命中
-rule_mode: whitelist				# 规则的运行模式，whitelist白名单，blacklist黑名单
+rule_mode: blacklist				# 规则的运行模式，whitelist白名单，blacklist黑名单
 
 protocol_rules:
   # Hello包类型的检测规则
