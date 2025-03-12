@@ -21,9 +21,67 @@ const (
 )
 
 type RuleEngine struct {
-	env           *cel.Env
-	rules         map[string]map[int]*ruleEngine.ProtocolRule
-	compiledRules map[string]map[int]cel.Program // 预编译的规则程序,第一层key为协议名,第二层key为协议子类型
+	env                    *cel.Env
+	originWhitelistRules   map[string]map[int]*ruleEngine.ProtocolRule // 原始的白名单规则,第一层key为协议名,第二层key为协议子类型
+	compiledWhitelistRules map[string]map[int]cel.Program              // 编译后的白名单规则程序,第一层key为协议名,第二层key为协议子类型
+	originBlacklistRules   map[string]map[int]*ruleEngine.ProtocolRule // 原始的黑名单规则,第一层key为协议名,第二层key为协议子类型
+	compiledBlacklistRules map[string]map[int]cel.Program              // 编译后的黑名单规则程序,第一层key为协议名,第二层key为协议子类型
+}
+
+// convertRuleTagToType 将规则标签转换为对应的类型
+func convertRuleTagToType(ruleTag string) (int, bool) {
+	switch ruleTag {
+	case "HELLO":
+		return OSPFTypeHello, true
+	case "DD":
+		return OSPFTypeDD, true
+	case "LSR":
+		return OSPFTypeLSR, true
+	case "LSU":
+		return OSPFTypeLSU, true
+	case "LSAck":
+		return OSPFTypeLSAck, true
+	default:
+		return 0, false
+	}
+}
+
+// processRules 处理规则集合
+func processRules(env *cel.Env, rule *ruleEngine.Rule, ruleID string) (map[string]map[int]*ruleEngine.ProtocolRule, map[string]map[int]cel.Program, error) {
+	ruleMap := make(map[string]map[int]*ruleEngine.ProtocolRule)
+	compiledRules := make(map[string]map[int]cel.Program)
+
+	// 确保协议类型的map已初始化
+	if _, exists := ruleMap[rule.RuleProtocol]; !exists {
+		ruleMap[rule.RuleProtocol] = make(map[int]*ruleEngine.ProtocolRule)
+	}
+	if _, exists := compiledRules[rule.RuleProtocol]; !exists {
+		compiledRules[rule.RuleProtocol] = make(map[int]cel.Program)
+	}
+
+	// 遍历每个规则的 ProtocolRules
+	for ruleTag, ruleInfo := range rule.ProtocolRules {
+		ruleType, ok := convertRuleTagToType(ruleTag)
+		if !ok {
+			continue
+		}
+
+		// 预编译规则
+		program, err := compileRule(env, rule, ruleTag)
+		if err != nil {
+			return nil, nil, fmt.Errorf("compile rule failed for rule %s, type %d: %v", ruleID, ruleType, err)
+		}
+
+		// 添加规则
+		ruleMap[rule.RuleProtocol][ruleType] = &ruleEngine.ProtocolRule{
+			Expression:  ruleInfo.Expression,
+			Description: ruleInfo.Description,
+			Type:        ruleInfo.Type,
+		}
+		compiledRules[rule.RuleProtocol][ruleType] = program
+	}
+
+	return ruleMap, compiledRules, nil
 }
 
 func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
@@ -67,57 +125,29 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 		return nil, fmt.Errorf("create cel env failed: %v", err)
 	}
 
-	ruleMap := make(map[string]map[int]*ruleEngine.ProtocolRule)
-	//编译后的规则列表
-	compiledRules := make(map[string]map[int]cel.Program)
+	var whiteRuleMap, blackRuleMap map[string]map[int]*ruleEngine.ProtocolRule
+	var compiledWhiteRules, compiledBlackRules map[string]map[int]cel.Program
 
 	// 遍历所有规则
 	for ruleID, rule := range rules {
-		// 确保协议类型的map已初始化
-		if _, exists := ruleMap[rule.RuleProtocol]; !exists {
-			ruleMap[rule.RuleProtocol] = make(map[int]*ruleEngine.ProtocolRule)
+		var err error
+		switch rule.RuleMode {
+		case "blacklist":
+			blackRuleMap, compiledBlackRules, err = processRules(env, rule, ruleID)
+		case "whitelist":
+			whiteRuleMap, compiledWhiteRules, err = processRules(env, rule, ruleID)
 		}
-		if _, exists := compiledRules[rule.RuleProtocol]; !exists {
-			compiledRules[rule.RuleProtocol] = make(map[int]cel.Program)
-		}
-
-		// 遍历每个规则的 ProtocolRules,ruleTag为规则标签，比如HELLO、DD、LSR、LSU、LSAck
-		for ruleTag, ruleInfo := range rule.ProtocolRules {
-			var ruleType int
-			switch ruleTag {
-			case "HELLO":
-				ruleType = OSPFTypeHello
-			case "DD":
-				ruleType = OSPFTypeDD
-			case "LSR":
-				ruleType = OSPFTypeLSR
-			case "LSU":
-				ruleType = OSPFTypeLSU
-			case "LSAck":
-				ruleType = OSPFTypeLSAck
-			default:
-				continue
-			}
-
-			// 预编译规则
-			program, err := compileRule(env, rule, ruleTag)
-			if err != nil {
-				return nil, fmt.Errorf("compile rule failed for rule %s, type %d: %v", ruleID, ruleType, err)
-			}
-
-			ruleMap[rule.RuleProtocol][ruleType] = &ruleEngine.ProtocolRule{
-				Expression:  ruleInfo.Expression,
-				Description: ruleInfo.Description,
-				Type:        ruleInfo.Type,
-			}
-			compiledRules[rule.RuleProtocol][ruleType] = program
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	return &RuleEngine{
-		env:           env,
-		rules:         ruleMap,
-		compiledRules: compiledRules,
+		env:                    env,
+		originWhitelistRules:   whiteRuleMap,
+		compiledWhitelistRules: compiledWhiteRules,
+		originBlacklistRules:   blackRuleMap,
+		compiledBlacklistRules: compiledBlackRules,
 	}, nil
 }
 
@@ -130,9 +160,9 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 		defer close(out)
 
 		for packet := range in {
-			// 根据packet类型获取对应的规则和预编译程序
-			if _, exists := r.rules[packet.Protocol]; exists {
-				if programs, ok := r.compiledRules[packet.Protocol]; ok {
+			//1. 白名单处理逻辑，根据packet类型获取对应的规则和预编译程序
+			if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
+				if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
 					if program, ok := programs[int(packet.SubType)]; ok {
 						// 构建评估变量
 						vars := buildEvalVars(packet)
@@ -141,18 +171,58 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 						result, err := r.evaluateRule(program, vars)
 						if err != nil {
 							// 记录错误但继续处理
-							packet.Error = fmt.Errorf("rule evaluation failed: %v", err)
+							packet.Error = fmt.Errorf("whitelist rule evaluation failed: %v", err)
 							continue
 						}
 
-						// 设置匹配结果
+						// 获取原始规则信息，并进行有效性检查
+						originalRule, exists := protocolRules[int(packet.SubType)]
+						if !exists || originalRule == nil {
+							packet.Error = fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+							continue
+						}
+
+						// 设置白名单匹配结果
 						packet.RuleResult = &types.RuleMatchResult{
-							Matched: result,
-							Rule:    nil, //TODO:
+							WhiteRuleMatched: result,
+							WhiteRule:        originalRule,
 						}
 					}
 				}
 			}
+
+			//2. 黑名单处理逻辑，根据packet类型获取对应的规则和预编译程序
+			if protocolRules, exists := r.originBlacklistRules[packet.Protocol]; exists {
+				if programs, ok := r.compiledBlacklistRules[packet.Protocol]; ok {
+					if program, ok := programs[int(packet.SubType)]; ok {
+						// 构建评估变量
+						vars := buildEvalVars(packet)
+
+						// 执行规则匹配
+						result, err := r.evaluateRule(program, vars)
+						if err != nil {
+							// 记录错误但继续处理
+							packet.Error = fmt.Errorf("blacklist rule evaluation failed: %v", err)
+							continue
+						}
+
+						// 获取原始规则信息，并进行有效性检查
+						originalRule, exists := protocolRules[int(packet.SubType)]
+						if !exists || originalRule == nil {
+							packet.Error = fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+							continue
+						}
+
+						// 设置黑名单匹配结果，白名单处可能申请过packet.RuleResult变量
+						if packet.RuleResult == nil {
+							packet.RuleResult = &types.RuleMatchResult{}
+						}
+						packet.RuleResult.BlackRuleMatched = result
+						packet.RuleResult.BlackRule = originalRule
+					}
+				}
+			}
+
 			out <- packet
 		}
 	}()
@@ -177,7 +247,7 @@ func buildEvalVars(packet *types.Packet) map[string]interface{} {
 		"ospf.area_id":       ospfPacket.AreaID.String(),
 		"ospf.checksum":      int64(ospfPacket.Checksum),
 		"ospf.auth.type":     int64(ospfPacket.AuType),
-		"ospf.auth.none":     string(ospfPacket.Authentication),
+		"ospf.auth.none":     ospfPacket.Authentication,
 	}
 
 	// 根据包类型添加特定字段
@@ -331,6 +401,9 @@ func NewRuleEngineProcessor(workerCount int, cfg interface{}) (*RuleEngine, erro
 		return nil, fmt.Errorf("load rules failed: %v", err)
 	}
 
+	// 获取所有规则
+	rules := loader.GetAllRules()
+
 	// 创建规则引擎
-	return NewRuleEngine(loader.GetAllRules())
+	return NewRuleEngine(rules)
 }

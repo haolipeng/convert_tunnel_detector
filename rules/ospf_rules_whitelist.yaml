@@ -9,7 +9,7 @@ rule_mode: whitelist				# 规则的运行模式，whitelist白名单，blacklist
 protocol_rules:
   # Hello包类型的检测规则
   HELLO:
-    expression: ospf.hello.hello_interval == 11
+    expression: ospf.hello.hello_interval == 10
     description: "检查Hello包的时间间隔"
     type: single 	#单字段 或 多字段组合
 

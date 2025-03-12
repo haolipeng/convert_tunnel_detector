@@ -4,8 +4,10 @@ import "github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 
 // RuleMatchResult 表示规则引擎的匹配结果
 type RuleMatchResult struct {
-	Matched bool             // 是否匹配
-	Rule    *ruleEngine.Rule // 匹配的规则
+	WhiteRuleMatched bool                     // 白名单规则是否匹配
+	BlackRuleMatched bool                     // 黑名单规则是否匹配
+	WhiteRule        *ruleEngine.ProtocolRule // 匹配的白名单规则
+	BlackRule        *ruleEngine.ProtocolRule // 匹配的黑名单规则
 }
 
 // RuleAction 表示规则匹配后的动作
