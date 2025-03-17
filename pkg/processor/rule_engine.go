@@ -74,6 +74,7 @@ func processRules(env *cel.Env, rule *ruleEngine.Rule, ruleID string) (map[strin
 
 		// 添加规则
 		ruleMap[rule.RuleProtocol][ruleType] = &ruleEngine.ProtocolRule{
+			State:       ruleInfo.State,
 			Expression:  ruleInfo.Expression,
 			Description: ruleInfo.Description,
 			Type:        ruleInfo.Type,
@@ -164,6 +165,19 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 			if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
 				if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
 					if program, ok := programs[int(packet.SubType)]; ok {
+						// 获取原始规则信息，并进行有效性检查
+						originalRule, exists := protocolRules[int(packet.SubType)]
+						if !exists || originalRule == nil {
+							packet.LastError = fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+							continue
+						}
+
+						// 检查规则状态，只有启用状态的规则才会被匹配
+						if originalRule.State != "enable" {
+							// 规则未启用，跳过匹配
+							continue
+						}
+
 						// 构建评估变量
 						vars := buildEvalVars(packet)
 
@@ -171,14 +185,7 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 						result, err := r.evaluateRule(program, vars)
 						if err != nil {
 							// 记录错误但继续处理
-							packet.Error = fmt.Errorf("whitelist rule evaluation failed: %v", err)
-							continue
-						}
-
-						// 获取原始规则信息，并进行有效性检查
-						originalRule, exists := protocolRules[int(packet.SubType)]
-						if !exists || originalRule == nil {
-							packet.Error = fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+							packet.LastError = fmt.Errorf("whitelist rule evaluation failed: %v", err)
 							continue
 						}
 
@@ -195,6 +202,19 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 			if protocolRules, exists := r.originBlacklistRules[packet.Protocol]; exists {
 				if programs, ok := r.compiledBlacklistRules[packet.Protocol]; ok {
 					if program, ok := programs[int(packet.SubType)]; ok {
+						// 获取原始规则信息，并进行有效性检查
+						originalRule, exists := protocolRules[int(packet.SubType)]
+						if !exists || originalRule == nil {
+							packet.LastError = fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+							continue
+						}
+
+						// 检查规则状态，只有启用状态的规则才会被匹配
+						if originalRule.State != "enable" {
+							// 规则未启用，跳过匹配
+							continue
+						}
+
 						// 构建评估变量
 						vars := buildEvalVars(packet)
 
@@ -202,14 +222,7 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 						result, err := r.evaluateRule(program, vars)
 						if err != nil {
 							// 记录错误但继续处理
-							packet.Error = fmt.Errorf("blacklist rule evaluation failed: %v", err)
-							continue
-						}
-
-						// 获取原始规则信息，并进行有效性检查
-						originalRule, exists := protocolRules[int(packet.SubType)]
-						if !exists || originalRule == nil {
-							packet.Error = fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+							packet.LastError = fmt.Errorf("blacklist rule evaluation failed: %v", err)
 							continue
 						}
 

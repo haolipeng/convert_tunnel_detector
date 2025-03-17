@@ -12,27 +12,31 @@ protocol_rules:
     expression: ospf.hello.hello_interval == 11
     description: "检查Hello包的时间间隔"
     type: single 	#单字段 或 多字段组合
+    state: enable 	# 协议子类型规则启用状态
 
   # 数据库描述包(DD)类型的检测规则
   DD:
     expression: ospf.db.interface_mtu == 1500
     description: "检查DD包的MTU值"
     type: single #单字段 或 多字段组合
+    state: enable 	# 协议子类型规则启用状态
 
   # 链路状态请求包(LSR)类型的检测规则
   LSR:
     expression: ospf.link_state_id == "192.168.170.8"
     description: "检查LSR的链路状态ID值"
     type: single
-
+    state: enable 	# 协议子类型规则启用状态
   # 链路状态更新包(LSU)类型的检测规则
   LSU:
     expression: ospf.advrouter == "192.168.170.3"
     description: "检查LSU包中的宣告路由器的地址"
     type: single
+    state: enable 	# 协议子类型规则启用状态
 
   # 链路状态确认包(LSAck)类型的检测规则
   LSAck:
     expression: ospf.lsa.seqnum == 0x80000001
     description: "检查LSAck包中的确认数量"
     type: single
+    state: enable 	# 协议子类型规则启用状态

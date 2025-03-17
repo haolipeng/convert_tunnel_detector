@@ -6,7 +6,7 @@ type Packet struct {
 	Timestamp int64  // 时间戳
 	RawData   []byte // 原始数据
 	Protocol  string // 协议类型
-	Error     error  // 错误信息
+	LastError error  // 错误信息
 
 	ParserResult PacketResult // 协议解析结果
 

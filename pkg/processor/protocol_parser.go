@@ -70,7 +70,7 @@ func (p *ProtocolParser) Process(ctx context.Context, dataCh <-chan *types.Packe
 					p.metrics.IncrementDropped()
 					// 可以选择将错误信息添加到packet中而不是直接丢弃
 					if result != nil {
-						result.Error = err
+						result.LastError = err
 					}
 					continue
 				}

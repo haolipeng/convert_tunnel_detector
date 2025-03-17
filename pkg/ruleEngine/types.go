@@ -14,6 +14,7 @@ type Rule struct {
 
 // ProtocolRule 表示具体的协议规则
 type ProtocolRule struct {
+	State       string `yaml:"state"`       // 规则状态 enable/disable
 	Expression  string `yaml:"expression"`  // 规则表达式
 	Description string `yaml:"description"` // 规则描述
 	Type        string `yaml:"type"`        // 规则类型 (single/multi)
