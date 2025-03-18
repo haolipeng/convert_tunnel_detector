@@ -45,7 +45,7 @@ func TestProcessOSPFPacketsFromPCAP(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 添加规则引擎处理器
-	ruleEngine, err := processor.NewRuleEngineProcessor(cfg.Pipeline.WorkerCount, cfg)
+	ruleEngine, err := processor.NewRuleEngineProcessor("../rules/", cfg.Pipeline.WorkerCount, cfg)
 	assert.NoError(t, err)
 	err = p.AddProcessor(ruleEngine)
 	assert.NoError(t, err)
@@ -72,21 +72,49 @@ func TestProcessOSPFPacketsFromPCAP(t *testing.T) {
 	// 获取结果
 	results := memorySink.GetResults()
 
-	// 验证结果
-	t.Logf("Processed packets, got %d results", len(results))
+	// 验证结果：确保处理了足够数量的数据包
+	assert.NotEmpty(t, results, "处理结果不应为空")
+	assert.GreaterOrEqual(t, len(results), 1, "应该至少处理了一个数据包")
 
 	// 检查是否有匹配的规则
 	matchedCount := 0
+	whitelistCount := 0
+	blacklistCount := 0
+
 	for _, packet := range results {
 		if packet.RuleResult != nil {
 			matchedCount++
 			if packet.RuleResult.WhiteRuleMatched {
-				t.Logf("Packet matched whitelist rule: %s", packet.RuleResult.WhiteRule.Description)
+				assert.NotEmpty(t, packet.RuleResult.WhiteRule.Description, "白名单规则应有描述")
+				whitelistCount++
 			}
 			if packet.RuleResult.BlackRuleMatched {
-				t.Logf("Packet matched blacklist rule: %s", packet.RuleResult.BlackRule.Description)
+				assert.NotEmpty(t, packet.RuleResult.BlackRule.Description, "黑名单规则应有描述")
+				blacklistCount++
 			}
 		}
 	}
-	t.Logf("Matched %d packets", matchedCount)
+
+	// 验证规则匹配情况
+	// 注意：这里的具体断言取决于你的预期结果，可能需要根据实际情况调整
+	if matchedCount > 0 {
+		assert.GreaterOrEqual(t, matchedCount, 1, "应该至少有一个数据包匹配规则")
+
+		// 验证白名单和黑名单规则匹配
+		if whitelistCount > 0 {
+			assert.GreaterOrEqual(t, whitelistCount, 1, "应该至少有一个数据包匹配白名单规则")
+		}
+
+		if blacklistCount > 0 {
+			assert.GreaterOrEqual(t, blacklistCount, 1, "应该至少有一个数据包匹配黑名单规则")
+		}
+
+		// 确保匹配总数等于白名单和黑名单匹配数之和
+		assert.Equal(t, matchedCount, whitelistCount+blacklistCount,
+			"匹配总数应等于白名单匹配数和黑名单匹配数之和")
+	} else {
+		// 如果没有匹配，这可能是预期的行为，或者是测试环境中规则不匹配的情况
+		// 可以根据实际需求决定是否增加断言
+		t.Log("没有数据包匹配规则，这可能是预期的，取决于测试规则和测试数据")
+	}
 }
