@@ -215,10 +215,14 @@ func (p *OSPFParser) parseLSUPacket(content interface{}, ospfPkt *OSPFPacket) er
 
 // extractLSAInformation 提取LSA信息
 func (p *OSPFParser) extractLSAInformation(content interface{}, lsa layers.LSA, newLSA *LSAFields) error {
+	if lsa.Content == nil {
+		return fmt.Errorf("extractLSAInformation error:LSA content is nil")
+	}
+
 	switch lsa.LSAheader.LSType {
 	case RouterLSAtypeV2: //1
 		//router lsa
-		routerLSAInfo, ok := content.(layers.RouterLSAV2)
+		routerLSAInfo, ok := lsa.Content.(layers.RouterLSAV2)
 		if !ok {
 			return fmt.Errorf("invalid LSU packet content: unknown RouterLSAtypeV2 type")
 		}
@@ -238,7 +242,7 @@ func (p *OSPFParser) extractLSAInformation(content interface{}, lsa layers.LSA, 
 		//所以使用fallthrough
 		fallthrough
 	case ASExternalLSAtypeV2: //5
-		asExLsaInfo, ok := content.(layers.ASExternalLSAV2)
+		asExLsaInfo, ok := lsa.Content.(layers.ASExternalLSAV2)
 		if !ok {
 			return fmt.Errorf("invalid LSU packet content: unknown ASExternalLSAtypeV2 type")
 		}
@@ -250,7 +254,7 @@ func (p *OSPFParser) extractLSAInformation(content interface{}, lsa layers.LSA, 
 
 	case NetworkLSAtypeV2: //2
 		//network lsa
-		networkLsaInfo, ok := content.(layers.NetworkLSAV2)
+		networkLsaInfo, ok := lsa.Content.(layers.NetworkLSAV2)
 		if !ok {
 			return fmt.Errorf("invalid LSU packet content: unknown NetworkLSAtypeV2 type")
 		}

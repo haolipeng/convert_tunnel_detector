@@ -61,7 +61,7 @@ func (p *ProtocolParser) Process(ctx context.Context, dataCh <-chan *types.Packe
 
 				start := time.Now()
 				//开始解析数据包
-				result, err := p.parsePacket(packet)
+				result, err := p.ParsePacket(packet)
 				duration := time.Since(start)
 				p.metrics.AddProcessingTime(duration)
 
@@ -104,8 +104,8 @@ func (p *ProtocolParser) Name() string {
 	return "ProtocolParser"
 }
 
-// parsePacket 解析数据包
-func (p *ProtocolParser) parsePacket(packetData *types.Packet) (*types.Packet, error) {
+// ParsePacket 解析数据包
+func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, error) {
 	if packetData == nil {
 		logrus.Warnf("Protocol parser received nil packet")
 		return nil, nil

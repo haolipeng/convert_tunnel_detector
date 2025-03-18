@@ -409,12 +409,12 @@ func (r *RuleEngine) CheckReady() error {
 }
 
 // NewRuleEngineProcessor 创建新的规则引擎处理器
-func NewRuleEngineProcessor(workerCount int, cfg interface{}) (*RuleEngine, error) {
+func NewRuleEngineProcessor(ruleFilePath string, workerCount int, cfg interface{}) (*RuleEngine, error) {
 	// 创建规则加载器
 	loader := ruleEngine.NewRuleLoader()
 
 	// 从文件夹加载所有协议的黑名单和白名单的规则
-	err := loader.LoadRulesFromDirectory("rules/")
+	err := loader.LoadRulesFromDirectory(ruleFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("load rules failed: %v", err)
 	}

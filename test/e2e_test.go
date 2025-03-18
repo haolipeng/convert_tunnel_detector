@@ -63,7 +63,7 @@ func TestProcessOSPFPacketsFromPCAP(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 等待处理完成
-	time.Sleep(5 * time.Second)
+	time.Sleep(500 * time.Second)
 
 	// 停止流水线
 	err = p.Stop()

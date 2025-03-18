@@ -165,7 +165,7 @@ func main() {
 	}
 
 	// 添加规则引擎处理器
-	ruleEngine, err := processor.NewRuleEngineProcessor(cfg.Pipeline.WorkerCount, cfg)
+	ruleEngine, err := processor.NewRuleEngineProcessor("rules/", cfg.Pipeline.WorkerCount, cfg)
 	if err != nil {
 		logrus.Errorf("Create Rule Engine Processor Failed: %s\n", err)
 		return
