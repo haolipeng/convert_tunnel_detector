@@ -268,7 +268,12 @@ func buildEvalVars(packet *types.Packet) map[string]interface{} {
 	case OSPFTypeHello:
 		// 添加Hello包特有字段
 		if ospfPacket.HelloFields != nil {
-			vars["ospf.hello.network_mask"] = ospfPacket.HelloFields.NetworkMask.String()
+			// 将NetworkMask转换为字符串格式
+			networkMask := fmt.Sprintf("%d.%d.%d.%d",
+				ospfPacket.HelloFields.NetworkMask[0], ospfPacket.HelloFields.NetworkMask[1],
+				ospfPacket.HelloFields.NetworkMask[2], ospfPacket.HelloFields.NetworkMask[3])
+			vars["ospf.hello.network_mask"] = networkMask
+
 			vars["ospf.hello.hello_interval"] = uint16(ospfPacket.HelloFields.HelloInterval)
 			vars["ospf.hello.router_priority"] = uint8(ospfPacket.HelloFields.Priority)
 			vars["ospf.hello.router_dead_interval"] = uint32(ospfPacket.HelloFields.DeadInterval)
