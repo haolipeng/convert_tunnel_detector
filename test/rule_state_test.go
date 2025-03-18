@@ -61,6 +61,7 @@ func TestRuleState(t *testing.T) {
 				AreaID:       net.ParseIP("0.0.0.0").To4(),
 				HelloFields: &processor.HelloFields{
 					HelloInterval: 10,
+					NetworkMask:   net.IPv4Mask(255, 255, 255, 0),
 				},
 			},
 		},

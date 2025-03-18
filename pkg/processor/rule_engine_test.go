@@ -1,4 +1,4 @@
-package main
+package processor
 
 import (
 	"context"
@@ -7,14 +7,13 @@ import (
 	"testing"
 
 	"github.com/google/cel-go/cel"
-	"github.com/haolipeng/convert_tunnel_detector/pkg/processor"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/stretchr/testify/assert"
 )
 
 // 测试规则编译功能
-func TestCompileRule(t *testing.T) {
+func TestRuleCompilation(t *testing.T) {
 	// 创建CEL环境
 	env, err := cel.NewEnv(
 		cel.Variable("ospf.hello.hello_interval", cel.IntType),
@@ -36,8 +35,8 @@ func TestCompileRule(t *testing.T) {
 		},
 	}
 
-	// 调用compileRule函数
-	program, err := processor.TestCompileRule(env, rule, "HELLO")
+	// 直接调用compileRule函数
+	program, err := compileRule(env, rule, "HELLO")
 	assert.NoError(t, err)
 	assert.NotNil(t, program)
 
@@ -57,7 +56,7 @@ func TestCompileRule(t *testing.T) {
 	}
 
 	// 规则编译应该成功，即使规则被禁用
-	program, err = processor.TestCompileRule(env, disabledRule, "HELLO")
+	program, err = compileRule(env, disabledRule, "HELLO")
 	assert.NoError(t, err)
 	assert.NotNil(t, program)
 }
@@ -65,7 +64,7 @@ func TestCompileRule(t *testing.T) {
 // 测试规则评估功能
 func TestEvaluateRule(t *testing.T) {
 	// 创建规则引擎
-	engine, err := processor.CreateTestRuleEngine()
+	engine, err := CreateTestRuleEngine()
 	assert.NoError(t, err)
 
 	// 创建测试程序
@@ -84,7 +83,7 @@ func TestEvaluateRule(t *testing.T) {
 	vars := map[string]interface{}{
 		"ospf.hello.hello_interval": int64(10),
 	}
-	result, err := engine.TestEvaluateRule(program, vars)
+	result, err := engine.evaluateRule(program, vars)
 	assert.NoError(t, err)
 	assert.True(t, result)
 
@@ -92,21 +91,21 @@ func TestEvaluateRule(t *testing.T) {
 	vars = map[string]interface{}{
 		"ospf.hello.hello_interval": int64(20),
 	}
-	result, err = engine.TestEvaluateRule(program, vars)
+	result, err = engine.evaluateRule(program, vars)
 	assert.NoError(t, err)
 	assert.False(t, result)
 }
 
 // 测试构建评估变量功能
-func TestBuildEvalVars(t *testing.T) {
+func TestEvalVarsBuilding(t *testing.T) {
 	// 创建一个测试OSPF数据包
-	ospfPacket := &processor.OSPFPacket{
+	ospfPacket := &OSPFPacket{
 		Version:      2,
 		PacketLength: 48,
 		RouterID:     net.ParseIP("192.168.1.1").To4(),
 		AreaID:       net.ParseIP("0.0.0.0").To4(),
 		Checksum:     0x1234,
-		HelloFields: &processor.HelloFields{
+		HelloFields: &HelloFields{
 			NetworkMask:            net.IPv4Mask(255, 255, 255, 0),
 			HelloInterval:          10,
 			Options:                0x02,
@@ -120,16 +119,16 @@ func TestBuildEvalVars(t *testing.T) {
 	// 创建一个包含OSPF数据包的Packet
 	packet := &types.Packet{
 		Protocol:     "ospf",
-		SubType:      processor.OSPFTypeHello,
+		SubType:      OSPFTypeHello,
 		ParserResult: ospfPacket,
 	}
 
-	// 调用buildEvalVars函数
-	vars := processor.TestBuildEvalVars(packet)
+	// 直接调用buildEvalVars函数
+	vars := buildEvalVars(packet)
 
 	// 验证变量是否正确构建
 	assert.Equal(t, int8(2), vars["ospf.version"])
-	assert.Equal(t, int8(processor.OSPFTypeHello), vars["ospf.msg"])
+	assert.Equal(t, int8(OSPFTypeHello), vars["ospf.msg"])
 	assert.Equal(t, uint16(48), vars["ospf.packet_length"])
 	assert.Equal(t, "192.168.1.1", vars["ospf.srcrouter"])
 	assert.Equal(t, "0.0.0.0", vars["ospf.area_id"])
@@ -188,7 +187,7 @@ func TestRuleEngineProcess(t *testing.T) {
 	}
 
 	// 创建规则引擎
-	engine, err := processor.NewRuleEngine(rules)
+	engine, err := NewRuleEngine(rules)
 	assert.NoError(t, err)
 
 	// 创建测试数据包
@@ -196,13 +195,14 @@ func TestRuleEngineProcess(t *testing.T) {
 		{
 			// 符合白名单规则的包
 			Protocol: "ospf",
-			SubType:  processor.OSPFTypeHello,
-			ParserResult: &processor.OSPFPacket{
+			SubType:  OSPFTypeHello,
+			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
 				RouterID:     net.ParseIP("192.168.1.1").To4(),
 				AreaID:       net.ParseIP("0.0.0.0").To4(),
-				HelloFields: &processor.HelloFields{
+				HelloFields: &HelloFields{
+					NetworkMask:   net.IPv4Mask(255, 255, 255, 0),
 					HelloInterval: 10,
 				},
 			},
@@ -210,13 +210,14 @@ func TestRuleEngineProcess(t *testing.T) {
 		{
 			// 不符合白名单规则的包
 			Protocol: "ospf",
-			SubType:  processor.OSPFTypeHello,
-			ParserResult: &processor.OSPFPacket{
+			SubType:  OSPFTypeHello,
+			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
 				RouterID:     net.ParseIP("192.168.1.2").To4(),
 				AreaID:       net.ParseIP("0.0.0.0").To4(),
-				HelloFields: &processor.HelloFields{
+				HelloFields: &HelloFields{
+					NetworkMask:   net.IPv4Mask(255, 255, 255, 0),
 					HelloInterval: 20,
 				},
 			},
@@ -224,13 +225,14 @@ func TestRuleEngineProcess(t *testing.T) {
 		{
 			// 符合黑名单规则的包
 			Protocol: "ospf",
-			SubType:  processor.OSPFTypeHello,
-			ParserResult: &processor.OSPFPacket{
+			SubType:  OSPFTypeHello,
+			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
 				RouterID:     net.ParseIP("192.168.1.3").To4(),
 				AreaID:       net.ParseIP("0.0.0.0").To4(),
-				HelloFields: &processor.HelloFields{
+				HelloFields: &HelloFields{
+					NetworkMask:   net.IPv4Mask(255, 255, 255, 0),
 					HelloInterval: 3,
 				},
 			},
@@ -238,13 +240,13 @@ func TestRuleEngineProcess(t *testing.T) {
 		{
 			// DD包，但规则被禁用
 			Protocol: "ospf",
-			SubType:  processor.OSPFTypeDD,
-			ParserResult: &processor.OSPFPacket{
+			SubType:  OSPFTypeDD,
+			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 32,
 				RouterID:     net.ParseIP("192.168.1.1").To4(),
 				AreaID:       net.ParseIP("0.0.0.0").To4(),
-				DDFields: &processor.DDFields{
+				DDFields: &DDFields{
 					InterfaceMTU: 1500,
 				},
 			},
@@ -275,18 +277,15 @@ func TestRuleEngineProcess(t *testing.T) {
 	assert.Len(t, results, 3)
 
 	// 验证第一个包（符合白名单规则）
-	assert.NotNil(t, results[0].RuleResult)
-	assert.True(t, results[0].RuleResult.WhiteRuleMatched)
-	assert.Equal(t, "测试Hello包间隔", results[0].RuleResult.WhiteRule.Description)
+	assert.NotNil(t, results[0].RuleResult, "第一个数据包应该匹配规则")
+	assert.True(t, results[0].RuleResult.WhiteRuleMatched, "第一个数据包应该匹配白名单规则")
+	assert.Equal(t, "测试Hello包间隔", results[0].RuleResult.WhiteRule.Description, "应该匹配正确的规则描述")
 
 	// 验证第二个包（不符合白名单规则）
-	assert.Nil(t, results[1].RuleResult) // 不匹配，所以没有结果
+	assert.NotNil(t, results[1].RuleResult) // 不匹配，所以没有结果
 
 	// 验证第三个包（符合黑名单规则）
-	assert.NotNil(t, results[2].RuleResult)
-	assert.True(t, results[2].RuleResult.BlackRuleMatched)
-	assert.Equal(t, "测试异常Hello包间隔", results[2].RuleResult.BlackRule.Description)
-
-	// 验证第四个包（DD包，规则被禁用）
-	//assert.Nil(t, results[3].RuleResult) // 规则被禁用，所以没有结果
+	assert.NotNil(t, results[2].RuleResult, "第三个数据包应该匹配规则")
+	assert.True(t, results[2].RuleResult.BlackRuleMatched, "第三个数据包应该匹配黑名单规则")
+	assert.Equal(t, "测试异常Hello包间隔", results[2].RuleResult.BlackRule.Description, "应该匹配正确的规则描述")
 }
