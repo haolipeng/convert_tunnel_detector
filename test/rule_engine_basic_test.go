@@ -1,15 +1,16 @@
 package main
 
 import (
-	"fmt"
+	"strings"
+	"testing"
+
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/stretchr/testify/assert"
-	"strings"
-	"testing"
 )
 
+// 表达式替换测试
 func Test_exprReplacement(t *testing.T) {
 	var str = `"Hello world! I'm " + name + "."`
 	env, err := cel.NewEnv(cel.Variable("name", cel.StringType)) //参数类型绑定
@@ -30,14 +31,23 @@ func Test_exprReplacement(t *testing.T) {
 	//初始化 name 变量的值
 	values := map[string]interface{}{"name": "haolipeng"}
 	//将值传递给程序，计算表达式的值
-	out, detail, err := program.Eval(values)
+	out, details, err := program.Eval(values)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(detail)
-	fmt.Println(out)
+
+	// 使用assert包进行断言检查
+	assert.NotNil(t, out, "表达式求值结果不应为nil")
+	assert.Equal(t, "Hello world! I'm haolipeng.", out.Value(), "表达式求值结果不符合预期")
+
+	// 检查结果类型
+	assert.Equal(t, "string", out.Type().TypeName(), "结果类型应为string")
+
+	// 如果需要详细检查details
+	assert.Nil(t, details, "详细信息不应为nil")
 }
 
+// 逻辑表达式测试
 func Test_LogicExpr(t *testing.T) {
 	var str = `100 + 200 > 300`
 	env, err := cel.NewEnv()
@@ -55,17 +65,28 @@ func Test_LogicExpr(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//初始化 name 变量的值
+	// 初始化变量值
 	values := map[string]interface{}{}
-	//将值传递给程序，计算表达式的值
-	out, detail, err := program.Eval(values)
+	// 将值传递给程序，计算表达式的值
+	out, details, err := program.Eval(values)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(detail)
-	fmt.Println(out)
+
+	// 使用assert包进行断言检查
+	assert.NotNil(t, out, "表达式求值结果不应为nil")
+
+	// 检查逻辑表达式的结果
+	assert.Equal(t, false, out.Value(), "表达式 '100 + 200 > 300' 应为 false")
+
+	// 检查结果类型
+	assert.Equal(t, "bool", out.Type().TypeName(), "结果类型应为bool")
+
+	// 如果需要详细检查details
+	assert.Nil(t, details, "详细信息不应为nil")
 }
 
+// 逻辑运算符and 和 or测试
 func Test_LogicAndOrOperater(t *testing.T) {
 	// 创建 CEL 环境
 	env, err := cel.NewEnv(
@@ -163,6 +184,7 @@ func upperString(str string) string {
 	return strings.ToUpper(str)
 }
 
+// 自定义函数测试
 func Test_CustomFunction(t *testing.T) {
 	env, err := cel.NewEnv(
 		cel.Function("upper",
@@ -203,7 +225,7 @@ func Test_CustomFunction(t *testing.T) {
 			name:     "错误参数类型",
 			expr:     `upper(123)`,
 			isError:  true,
-			expected: "no such overload: upper(int)",
+			expected: "found no matching overload for 'upper' applied to '(int)'",
 		},
 	}
 
