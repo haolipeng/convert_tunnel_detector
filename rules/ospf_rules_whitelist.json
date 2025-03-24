@@ -1,0 +1,41 @@
+{
+    "state": "enable",
+    "rule_id": "ospf_whitelist_001",
+    "rule_protocol": "ospf",
+    "rule_tag": "ospf,qingteng",
+    "rule_name": "ospf_whitelist_rules",
+    "rule_type": "or",
+    "rule_mode": "whitelist",
+    "protocol_rules": {
+      "HELLO": {
+        "expression": "ospf.hello.hello_interval == 10",
+        "description": "检查Hello包的标准时间间隔",
+        "type": "single",
+        "state": "enable"
+      },
+      "DD": {
+        "expression": "ospf.db.interface_mtu == 1500",
+        "description": "检查DD包的标准MTU值",
+        "type": "single",
+        "state": "enable"
+      },
+      "LSR": {
+        "expression": "ospf.link_state_id.startsWith(\"192.168.\")",
+        "description": "检查LSR链路状态ID是否为内网地址",
+        "type": "single",
+        "state": "enable"
+      },
+      "LSU": {
+        "expression": "ospf.advrouter.startsWith(\"192.168.\")",
+        "description": "检查LSU包中的宣告路由器是否为内网地址",
+        "type": "single",
+        "state": "enable"
+      },
+      "LSAck": {
+        "expression": "ospf.lsa.seqnum >= 0x80000001",
+        "description": "检查LSAck包中的序列号是否有效",
+        "type": "single",
+        "state": "enable"
+      }
+    }
+  }
