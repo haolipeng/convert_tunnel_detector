@@ -3,7 +3,7 @@
 # 设置API地址和端口
 HOST="localhost"
 PORT="8080"
-API_BASE="http://${HOST}:${PORT}/api/v1/ruleEngine"
+API_BASE="http://${HOST}:${PORT}/ruleEngine"
 TEST_RULE_ID="ospf_blacklist_test"
 
 # 彩色输出函数

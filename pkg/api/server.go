@@ -4,32 +4,21 @@ import (
 	"context"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 )
 
 // Server HTTP 服务器
 type Server struct {
-	echo      *echo.Echo
-	addr      string
-	ruleGroup *echo.Group
+	echo *echo.Echo
+	addr string
 }
 
 // NewServer 创建一个新的 HTTP 服务器
 func NewServer(addr string) *Server {
 	e := echo.New()
 
-	// 添加中间件
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORS())
-
-	// 创建路由组
-	ruleGroup := e.Group("/api/v1")
-
 	return &Server{
-		echo:      e,
-		addr:      addr,
-		ruleGroup: ruleGroup,
+		echo: e,
+		addr: addr,
 	}
 }
 
@@ -43,21 +32,19 @@ func (s *Server) Stop(ctx context.Context) error {
 	return s.echo.Shutdown(ctx)
 }
 
-// GetRuleGroup 获取规则引擎的路由组
-func (s *Server) GetRuleGroup() *echo.Group {
-	return s.ruleGroup
+// GetEcho 获取Echo实例
+func (s *Server) GetEcho() *echo.Echo {
+	return s.echo
 }
 
 // RegisterRuleService 注册规则服务
 func (s *Server) RegisterRuleService(rs *RuleService) {
-	PREFIX := "ruleEngine"
-
 	// 注册路由
-	s.ruleGroup.GET(PREFIX+"/configs", rs.GetRuleConfigs)
-	s.ruleGroup.GET(PREFIX+"/configs/:rule_id", rs.GetRuleConfig)
-	s.ruleGroup.POST(PREFIX+"/configs/:rule_id", rs.CreateRule)
-	s.ruleGroup.POST(PREFIX+"/configs/:rule_id/start", rs.StartRule)
-	s.ruleGroup.POST(PREFIX+"/configs/:rule_id/stop", rs.StopRule)
-	s.ruleGroup.PUT(PREFIX+"/configs/:rule_id", rs.UpdateRule)
-	s.ruleGroup.POST(PREFIX+"/configs/:rule_id/delete", rs.DeleteRule)
+	s.echo.GET("/ruleEngine/configs", rs.GetRuleConfigs)              // 获取所有规则配置
+	s.echo.GET("/ruleEngine/configs/:rule_id", rs.GetRuleConfig)      // 获取指定规则配置
+	s.echo.POST("/ruleEngine/configs/:rule_id", rs.CreateRule)        // 创建规则
+	s.echo.POST("/ruleEngine/configs/:rule_id/start", rs.StartRule)   // 启动规则
+	s.echo.POST("/ruleEngine/configs/:rule_id/stop", rs.StopRule)     // 停止规则
+	s.echo.PUT("/ruleEngine/configs/:rule_id", rs.UpdateRule)         // 更新规则
+	s.echo.POST("/ruleEngine/configs/:rule_id/delete", rs.DeleteRule) // 删除规则
 }
