@@ -56,6 +56,14 @@ func NewRuleNotFoundError(ruleID string) *RuleError {
 	}
 }
 
+// NewRuleNotFoundError 创建规则不存在错误
+func NewRuleIDEmptyError(ruleID string) *RuleError {
+	return &RuleError{
+		Code:    ErrCodeRuleNotFound,
+		Message: fmt.Sprintf("规则ID不能为空"),
+	}
+}
+
 // NewRuleAlreadyExistsError 创建规则已存在错误
 func NewRuleAlreadyExistsError(ruleID string) *RuleError {
 	return &RuleError{

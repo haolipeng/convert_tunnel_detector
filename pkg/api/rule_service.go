@@ -32,7 +32,7 @@ func NewRuleService(ruleDir string, ruleProcessor *processor.RuleEngine) *RuleSe
 	// 创建规则加载器
 	loader := ruleEngine.NewRuleLoader()
 
-	// 加载规则目录
+	// 从本地规则目录加载规则
 	err := loader.LoadRulesFromDirectory(ruleDir)
 	if err != nil {
 		logrus.Errorf("加载规则目录失败: %v", err)
@@ -49,9 +49,9 @@ func NewRuleService(ruleDir string, ruleProcessor *processor.RuleEngine) *RuleSe
 // GetRuleConfigs 获取所有规则配置
 func (rs *RuleService) GetRuleConfigs(c echo.Context) error {
 	// 使用查询参数过滤规则
-	protocol := c.QueryParam("protocol")
-	mode := c.QueryParam("mode")
-	state := c.QueryParam("state")
+	protocol := c.QueryParam("protocol") //指定协议
+	mode := c.QueryParam("mode")         //指定模式
+	state := c.QueryParam("state")       //指定状态
 
 	// 获取所有规则
 	allRules := rs.ruleLoader.GetAllRules()
@@ -63,6 +63,7 @@ func (rs *RuleService) GetRuleConfigs(c echo.Context) error {
 			"operation":  "get_all_rules",
 		}).Debug("获取所有规则")
 
+		// 直接返回所有规则
 		return c.JSON(http.StatusOK, Response{
 			Code:    http.StatusOK,
 			Message: "获取规则配置成功",
@@ -111,6 +112,9 @@ func (rs *RuleService) GetRuleConfigs(c echo.Context) error {
 // GetRuleConfig 获取特定规则配置
 func (rs *RuleService) GetRuleConfig(c echo.Context) error {
 	ruleID := c.Param("rule_id")
+	if ruleID == "" {
+		return HandleError(c, NewRuleIDEmptyError(ruleID))
+	}
 
 	//检查规则是否存在
 	rule, exists := rs.ruleLoader.GetRule(ruleID)
@@ -128,6 +132,9 @@ func (rs *RuleService) GetRuleConfig(c echo.Context) error {
 // CreateRule 创建规则
 func (rs *RuleService) CreateRule(c echo.Context) error {
 	ruleID := c.Param("rule_id")
+	if ruleID == "" {
+		return HandleError(c, NewRuleIDEmptyError(ruleID))
+	}
 
 	// 检查规则是否已存在
 	if _, exists := rs.ruleLoader.GetRule(ruleID); exists {

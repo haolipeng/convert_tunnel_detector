@@ -1,0 +1,23 @@
+{
+  "state": "enable",
+  "rule_id": "ospf_whitelist_test",
+  "rule_protocol": "ospf",
+  "rule_tag": "ospf,test",
+  "rule_name": "ospf白名单测试规则",
+  "rule_type": "and",
+  "rule_mode": "whitelist",
+  "protocol_rules": {
+    "HELLO": {
+      "expression": "ospf.hello.hello_interval == 30",
+      "description": "检查Hello包的时间间隔",
+      "type": "single",
+      "state": "enable"
+    },
+    "LSU": {
+      "expression": "ospf.advrouter == \"10.1.1.1\"",
+      "description": "检查LSU包中的宣告路由器的地址",
+      "type": "single",
+      "state": "enable"
+    }
+  }
+} 

@@ -1,0 +1,35 @@
+{
+  "state": "enable",
+  "rule_id": "ospf_blacklist_test",
+  "rule_protocol": "ospf",
+  "rule_tag": "ospf,test,updated",
+  "rule_name": "更新后的ospf黑名单测试规则",
+  "rule_type": "or",
+  "rule_mode": "blacklist",
+  "protocol_rules": {
+    "HELLO": {
+      "expression": "ospf.hello.hello_interval == 10",
+      "description": "检查Hello包的时间间隔",
+      "type": "single",
+      "state": "enable"
+    },
+    "DD": {
+      "expression": "ospf.db.interface_mtu == 1400",
+      "description": "检查DD包的MTU值",
+      "type": "single",
+      "state": "enable"
+    },
+    "LSR": {
+      "expression": "ospf.link_state_id == \"192.168.1.1\"",
+      "description": "检查LSR的链路状态ID值",
+      "type": "single",
+      "state": "enable"
+    },
+    "LSAck": {
+      "expression": "ospf.lsa.seqnum == 0x80000001",
+      "description": "检查LSAck包中的确认序列号",
+      "type": "single",
+      "state": "enable"
+    }
+  }
+} 
