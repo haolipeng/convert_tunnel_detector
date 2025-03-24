@@ -14,6 +14,7 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/sirupsen/logrus"
 
+	"github.com/haolipeng/convert_tunnel_detector/pkg/api"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/pipeline"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/processor"
@@ -165,12 +166,12 @@ func main() {
 	}
 
 	// 添加规则引擎处理器
-	ruleEngine, err := processor.NewRuleEngineProcessor("rules/", cfg.Pipeline.WorkerCount, cfg)
+	ruleEngineProcessor, err := processor.NewRuleEngineProcessor("rules/", cfg.Pipeline.WorkerCount, cfg)
 	if err != nil {
 		logrus.Errorf("Create Rule Engine Processor Failed: %s\n", err)
 		return
 	}
-	err = p.AddProcessor(ruleEngine)
+	err = p.AddProcessor(ruleEngineProcessor)
 	if err != nil {
 		logrus.Errorf("Add Rule Engine Processor Failed: %s\n", err)
 		return
@@ -190,6 +191,21 @@ func main() {
 
 	logrus.Info("Pipeline have started successfully")
 
+	// 创建 HTTP API 服务
+	apiServer := api.NewServer(":8080")
+
+	// 创建规则服务，并注册到 API 服务器
+	ruleService := api.NewRuleService("rules/", ruleEngineProcessor)
+	apiServer.RegisterRuleService(ruleService)
+
+	// 在独立的 goroutine 中启动 API 服务器
+	go func() {
+		logrus.Info("Starting HTTP API server on :8080")
+		if err := apiServer.Start(); err != nil {
+			logrus.Errorf("HTTP API server error: %v", err)
+		}
+	}()
+
 	// 处理中断信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -200,6 +216,14 @@ func main() {
 
 	// 优雅退出
 	cancel() // 触发 context 取消
+
+	// 关闭 HTTP API 服务器
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := apiServer.Stop(shutdownCtx); err != nil {
+		logrus.Errorf("Error stopping HTTP API server: %v", err)
+	}
 
 	// 等待处理完成
 	if err := p.Stop(); err != nil {

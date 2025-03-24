@@ -425,3 +425,119 @@ func NewRuleEngineProcessor(ruleFilePath string, workerCount int, cfg interface{
 	// 创建规则引擎
 	return NewRuleEngine(rules)
 }
+
+// ReloadRules 重新加载规则引擎的规则
+func (r *RuleEngine) ReloadRules() error {
+	// 获取当前路径下的所有规则
+	loader := ruleEngine.NewRuleLoader()
+
+	// 这里假设规则文件在 rules 目录
+	err := loader.LoadRulesFromDirectory("rules")
+	if err != nil {
+		return fmt.Errorf("加载规则目录失败: %v", err)
+	}
+
+	// 获取所有规则
+	rules := loader.GetAllRules()
+
+	// 创建新的环境
+	env, err := cel.NewEnv(
+		cel.Declarations(
+			// OSPF通用头部字段
+			decls.NewVar("ospf.version", decls.Int),
+			decls.NewVar("ospf.msg", decls.Int),
+			decls.NewVar("ospf.packet_length", decls.Int),
+			decls.NewVar("ospf.srcrouter", decls.String),
+			decls.NewVar("ospf.area_id", decls.String),
+			decls.NewVar("ospf.checksum", decls.Int),
+
+			// Hello包字段
+			decls.NewVar("ospf.hello.network_mask", decls.String),
+			decls.NewVar("ospf.hello.hello_interval", decls.Int),
+			decls.NewVar("ospf.hello.router_priority", decls.Int),
+			decls.NewVar("ospf.hello.router_dead_interval", decls.Int),
+			decls.NewVar("ospf.hello.designated_router", decls.String),
+			decls.NewVar("ospf.hello.backup_designated_router", decls.String),
+			decls.NewVar("ospf.v2.options", decls.Int),
+
+			// DD包字段
+			decls.NewVar("ospf.db.interface_mtu", decls.Int),
+			decls.NewVar("ospf.v2.options", decls.Int),
+			decls.NewVar("ospf.db.dd_sequence", decls.Int),
+			decls.NewVar("ospf.db.dd_age", decls.Int),
+
+			// LSR包字段
+			decls.NewVar("ospf.link_state_id", decls.String),
+
+			// LSU包字段
+			decls.NewVar("ospf.advrouter", decls.String),
+
+			// LSAck包字段
+			decls.NewVar("ospf.lsa.seqnum", decls.Int),
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("创建CEL环境失败: %v", err)
+	}
+
+	// 更新环境
+	r.env = env
+
+	// 清空现有规则
+	r.originWhitelistRules = make(map[string]map[int]*ruleEngine.ProtocolRule)
+	r.compiledWhitelistRules = make(map[string]map[int]cel.Program)
+	r.originBlacklistRules = make(map[string]map[int]*ruleEngine.ProtocolRule)
+	r.compiledBlacklistRules = make(map[string]map[int]cel.Program)
+
+	// 处理所有规则
+	for ruleID, rule := range rules {
+		switch rule.RuleMode {
+		case "blacklist":
+			originRules, compiledRules, err := processRules(env, rule, ruleID)
+			if err != nil {
+				return fmt.Errorf("处理黑名单规则失败: %v", err)
+			}
+			// 合并规则
+			for protocol, rules := range originRules {
+				if _, exists := r.originBlacklistRules[protocol]; !exists {
+					r.originBlacklistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
+				}
+				for ruleType, rule := range rules {
+					r.originBlacklistRules[protocol][ruleType] = rule
+				}
+			}
+			for protocol, rules := range compiledRules {
+				if _, exists := r.compiledBlacklistRules[protocol]; !exists {
+					r.compiledBlacklistRules[protocol] = make(map[int]cel.Program)
+				}
+				for ruleType, program := range rules {
+					r.compiledBlacklistRules[protocol][ruleType] = program
+				}
+			}
+		case "whitelist":
+			originRules, compiledRules, err := processRules(env, rule, ruleID)
+			if err != nil {
+				return fmt.Errorf("处理白名单规则失败: %v", err)
+			}
+			// 合并规则
+			for protocol, rules := range originRules {
+				if _, exists := r.originWhitelistRules[protocol]; !exists {
+					r.originWhitelistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
+				}
+				for ruleType, rule := range rules {
+					r.originWhitelistRules[protocol][ruleType] = rule
+				}
+			}
+			for protocol, rules := range compiledRules {
+				if _, exists := r.compiledWhitelistRules[protocol]; !exists {
+					r.compiledWhitelistRules[protocol] = make(map[int]cel.Program)
+				}
+				for ruleType, program := range rules {
+					r.compiledWhitelistRules[protocol][ruleType] = program
+				}
+			}
+		}
+	}
+
+	return nil
+}
