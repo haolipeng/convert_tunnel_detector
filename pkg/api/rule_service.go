@@ -193,12 +193,7 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 func (rs *RuleService) UpdateRule(c echo.Context) error {
 	ruleID := c.Param("rule_id")
 
-	// 检查规则是否存在
-	if _, exists := rs.ruleLoader.GetRule(ruleID); !exists {
-		return HandleError(c, NewRuleNotFoundError(ruleID))
-	}
-
-	// 解析请求体
+	// 第一步：解析请求体中的规则，并验证规则
 	var rule ruleEngine.Rule
 	if err := c.Bind(&rule); err != nil {
 		return HandleError(c, NewInvalidRuleFormatError(err))
@@ -207,41 +202,31 @@ func (rs *RuleService) UpdateRule(c echo.Context) error {
 	// 保持规则ID一致
 	rule.RuleID = ruleID
 
-	// 验证规则
+	// 验证规则有效性
 	if err := validateRule(&rule); err != nil {
 		return HandleError(c, NewRuleValidationError(err))
 	}
 
-	// 序列化为JSON
+	// 第二步：在内存映射表中查找规则是否存在
+	if _, exists := rs.ruleLoader.GetRule(ruleID); !exists {
+		return HandleError(c, NewRuleNotFoundError(ruleID))
+	}
+
+	// 将更新的规则持久化到文件
 	data, err := json.MarshalIndent(rule, "", "  ")
 	if err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("序列化规则失败: %w", err)))
 	}
 
 	// 确定文件路径
-	// 先尝试找到现有的文件
 	var filePath string
-	existsInJSON := false
-	existsInYAML := false
-
 	jsonFilePath := filepath.Join(rs.ruleDir, ruleID+".json")
-	yamlFilePath := filepath.Join(rs.ruleDir, ruleID+".yaml")
 
+	// 检查JSON文件是否存在
 	if _, err := os.Stat(jsonFilePath); err == nil {
-		existsInJSON = true
 		filePath = jsonFilePath
-	}
-
-	if _, err := os.Stat(yamlFilePath); err == nil {
-		existsInYAML = true
-		// 如果JSON文件存在，优先更新JSON文件
-		if !existsInJSON {
-			filePath = yamlFilePath
-		}
-	}
-
-	// 如果两种格式都不存在，创建JSON格式的文件
-	if !existsInJSON && !existsInYAML {
+	} else {
+		// 如果文件不存在，创建新的JSON文件
 		filePath = jsonFilePath
 	}
 
@@ -250,18 +235,24 @@ func (rs *RuleService) UpdateRule(c echo.Context) error {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("保存规则文件失败: %w", err)))
 	}
 
-	// 重新加载规则
+	// 重新加载规则到内存映射表
 	if err := rs.ruleLoader.LoadRuleFromFile(filePath); err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("加载规则失败: %w", err)))
 	}
 
-	// 通知规则处理器更新规则
+	// 第三步：更新规则引擎RuleEngine中的匹配规则
 	if rs.ruleProcessor != nil {
+		// 使用增量更新功能更新规则
 		if err := rs.ruleProcessor.ReloadRules(); err != nil {
 			logrus.WithFields(logrus.Fields{
 				"rule_id": ruleID,
 				"error":   err.Error(),
 			}).Warn("重新加载规则引擎失败")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"rule_id":   ruleID,
+				"operation": "update",
+			}).Info("规则更新成功")
 		}
 	}
 

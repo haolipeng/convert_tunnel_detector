@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/google/cel-go/checker/decls"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 // OSPF报文类型常量
@@ -21,11 +23,14 @@ const (
 )
 
 type RuleEngine struct {
+	mu                     sync.RWMutex // 互斥锁，保护共享资源
 	env                    *cel.Env
 	originWhitelistRules   map[string]map[int]*ruleEngine.ProtocolRule // 原始的白名单规则,第一层key为协议名,第二层key为协议子类型
 	compiledWhitelistRules map[string]map[int]cel.Program              // 编译后的白名单规则程序,第一层key为协议名,第二层key为协议子类型
 	originBlacklistRules   map[string]map[int]*ruleEngine.ProtocolRule // 原始的黑名单规则,第一层key为协议名,第二层key为协议子类型
 	compiledBlacklistRules map[string]map[int]cel.Program              // 编译后的黑名单规则程序,第一层key为协议名,第二层key为协议子类型
+	// 规则表达式哈希表，用于跟踪规则变化，格式为：map[ruleID]map[ruleTag]string
+	ruleExpressionHashes map[string]map[string]string // 第一层key为规则ID，第二层key为规则标签，值为表达式哈希值
 }
 
 // convertRuleTagToType 将规则标签转换为对应的类型
@@ -129,8 +134,19 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 	var whiteRuleMap, blackRuleMap map[string]map[int]*ruleEngine.ProtocolRule
 	var compiledWhiteRules, compiledBlackRules map[string]map[int]cel.Program
 
+	// 创建表达式哈希表
+	expressionHashes := make(map[string]map[string]string)
+
 	// 遍历所有规则
 	for ruleID, rule := range rules {
+		// 为每个规则创建哈希表
+		expressionHashes[ruleID] = make(map[string]string)
+
+		// 计算并存储每个规则表达式的哈希值
+		for ruleTag, protocolRule := range rule.ProtocolRules {
+			expressionHashes[ruleID][ruleTag] = calculateExpressionHash(protocolRule.Expression)
+		}
+
 		var err error
 		switch rule.RuleMode {
 		case "blacklist":
@@ -149,7 +165,91 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 		compiledWhitelistRules: compiledWhiteRules,
 		originBlacklistRules:   blackRuleMap,
 		compiledBlacklistRules: compiledBlackRules,
+		ruleExpressionHashes:   expressionHashes,
 	}, nil
+}
+
+// processWhitelistRule 处理白名单规则匹配
+// 此函数假设调用者已经持有读锁
+func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
+	if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
+		if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
+			if program, ok := programs[int(packet.SubType)]; ok {
+				// 获取原始规则信息，并进行有效性检查
+				originalRule, exists := protocolRules[int(packet.SubType)]
+				if !exists || originalRule == nil {
+					return false, fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+				}
+
+				// 检查规则状态，只有启用状态的规则才会被匹配
+				if originalRule.State != "enable" {
+					// 规则未启用，跳过匹配
+					return false, nil
+				}
+
+				// 构建评估变量
+				vars := buildEvalVars(packet)
+
+				// 执行规则匹配
+				result, err := r.evaluateRule(program, vars)
+				if err != nil {
+					return false, fmt.Errorf("whitelist rule evaluation failed: %v", err)
+				}
+
+				// 设置白名单匹配结果
+				packet.RuleResult = &types.RuleMatchResult{
+					WhiteRuleMatched: result,
+					WhiteRule:        originalRule,
+				}
+
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// processBlacklistRule 处理黑名单规则匹配
+// 此函数假设调用者已经持有读锁
+func (r *RuleEngine) processBlacklistRule(packet *types.Packet) (bool, error) {
+	if protocolRules, exists := r.originBlacklistRules[packet.Protocol]; exists {
+		if programs, ok := r.compiledBlacklistRules[packet.Protocol]; ok {
+			if program, ok := programs[int(packet.SubType)]; ok {
+				// 获取原始规则信息，并进行有效性检查
+				originalRule, exists := protocolRules[int(packet.SubType)]
+				if !exists || originalRule == nil {
+					return false, fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+				}
+
+				// 检查规则状态，只有启用状态的规则才会被匹配
+				if originalRule.State != "enable" {
+					// 规则未启用，跳过匹配
+					return false, nil
+				}
+
+				// 构建评估变量
+				vars := buildEvalVars(packet)
+
+				// 执行规则匹配
+				result, err := r.evaluateRule(program, vars)
+				if err != nil {
+					return false, fmt.Errorf("blacklist rule evaluation failed: %v", err)
+				}
+
+				// 设置黑名单匹配结果，白名单处可能申请过packet.RuleResult变量
+				if packet.RuleResult == nil {
+					packet.RuleResult = &types.RuleMatchResult{}
+				}
+				packet.RuleResult.BlackRuleMatched = result
+				packet.RuleResult.BlackRule = originalRule
+
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *sync.WaitGroup) (<-chan *types.Packet, error) {
@@ -161,78 +261,25 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 		defer close(out)
 
 		for packet := range in {
-			//1. 白名单处理逻辑，根据packet类型获取对应的规则和预编译程序
-			if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
-				if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
-					if program, ok := programs[int(packet.SubType)]; ok {
-						// 获取原始规则信息，并进行有效性检查
-						originalRule, exists := protocolRules[int(packet.SubType)]
-						if !exists || originalRule == nil {
-							packet.LastError = fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
-							continue
-						}
+			// 处理白名单规则
+			r.mu.RLock()
+			matched, err := r.processWhitelistRule(packet)
+			r.mu.RUnlock()
 
-						// 检查规则状态，只有启用状态的规则才会被匹配
-						if originalRule.State != "enable" {
-							// 规则未启用，跳过匹配
-							continue
-						}
-
-						// 构建评估变量
-						vars := buildEvalVars(packet)
-
-						// 执行规则匹配
-						result, err := r.evaluateRule(program, vars)
-						if err != nil {
-							// 记录错误但继续处理
-							packet.LastError = fmt.Errorf("whitelist rule evaluation failed: %v", err)
-							continue
-						}
-
-						// 设置白名单匹配结果
-						packet.RuleResult = &types.RuleMatchResult{
-							WhiteRuleMatched: result,
-							WhiteRule:        originalRule,
-						}
-					}
-				}
+			if err != nil {
+				packet.LastError = err
+				out <- packet
+				continue
 			}
 
-			//2. 黑名单处理逻辑，根据packet类型获取对应的规则和预编译程序
-			if protocolRules, exists := r.originBlacklistRules[packet.Protocol]; exists {
-				if programs, ok := r.compiledBlacklistRules[packet.Protocol]; ok {
-					if program, ok := programs[int(packet.SubType)]; ok {
-						// 获取原始规则信息，并进行有效性检查
-						originalRule, exists := protocolRules[int(packet.SubType)]
-						if !exists || originalRule == nil {
-							packet.LastError = fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
-							continue
-						}
+			// 如果白名单规则没有匹配，继续检查黑名单规则
+			if !matched {
+				r.mu.RLock()
+				_, err := r.processBlacklistRule(packet)
+				r.mu.RUnlock()
 
-						// 检查规则状态，只有启用状态的规则才会被匹配
-						if originalRule.State != "enable" {
-							// 规则未启用，跳过匹配
-							continue
-						}
-
-						// 构建评估变量
-						vars := buildEvalVars(packet)
-
-						// 执行规则匹配
-						result, err := r.evaluateRule(program, vars)
-						if err != nil {
-							// 记录错误但继续处理
-							packet.LastError = fmt.Errorf("blacklist rule evaluation failed: %v", err)
-							continue
-						}
-
-						// 设置黑名单匹配结果，白名单处可能申请过packet.RuleResult变量
-						if packet.RuleResult == nil {
-							packet.RuleResult = &types.RuleMatchResult{}
-						}
-						packet.RuleResult.BlackRuleMatched = result
-						packet.RuleResult.BlackRule = originalRule
-					}
+				if err != nil {
+					packet.LastError = err
 				}
 			}
 
@@ -373,6 +420,7 @@ func compileRule(env *cel.Env, rule *ruleEngine.Rule, ruleProtocol string) (cel.
 }
 
 // evaluateRule 评估规则
+// 此方法不修改共享状态，但在访问program时应确保持有读锁
 func (r *RuleEngine) evaluateRule(program cel.Program, vars map[string]interface{}) (bool, error) {
 	if program == nil {
 		return false, fmt.Errorf("program is nil")
@@ -440,7 +488,7 @@ func (r *RuleEngine) ReloadRules() error {
 	// 获取所有规则
 	rules := loader.GetAllRules()
 
-	// 创建新的环境
+	// 2. 创建新的环境（这部分也不需要锁，因为只是创建对象）
 	env, err := cel.NewEnv(
 		cel.Declarations(
 			// OSPF通用头部字段
@@ -480,64 +528,153 @@ func (r *RuleEngine) ReloadRules() error {
 		return fmt.Errorf("创建CEL环境失败: %v", err)
 	}
 
+	// 3. 在修改共享资源前，获取写锁
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	// 更新环境
 	r.env = env
 
-	// 清空现有规则
-	r.originWhitelistRules = make(map[string]map[int]*ruleEngine.ProtocolRule)
-	r.compiledWhitelistRules = make(map[string]map[int]cel.Program)
-	r.originBlacklistRules = make(map[string]map[int]*ruleEngine.ProtocolRule)
-	r.compiledBlacklistRules = make(map[string]map[int]cel.Program)
+	// 跟踪已处理的规则ID集合
+	processedRuleIDs := make(map[string]bool)
 
-	// 处理所有规则
+	// 4. 处理所有规则（已持有写锁，安全地修改共享资源）
 	for ruleID, rule := range rules {
-		switch rule.RuleMode {
-		case "blacklist":
-			originRules, compiledRules, err := processRules(env, rule, ruleID)
-			if err != nil {
-				return fmt.Errorf("处理黑名单规则失败: %v", err)
+		processedRuleIDs[ruleID] = true
+
+		// 检查规则是否在哈希表中
+		if _, exists := r.ruleExpressionHashes[ruleID]; !exists {
+			// 新规则，需要处理
+			r.ruleExpressionHashes[ruleID] = make(map[string]string)
+			// 处理新规则
+			r.processRule(env, rule, ruleID, true)
+			continue
+		}
+
+		// 检查规则的表达式是否有变化
+		hasChanged := false
+		for ruleTag, protocolRule := range rule.ProtocolRules {
+			// 计算新哈希值
+			newHash := calculateExpressionHash(protocolRule.Expression)
+
+			// 检查表达式是否已存在且哈希值是否相同
+			oldHash, exists := r.ruleExpressionHashes[ruleID][ruleTag]
+			if !exists || oldHash != newHash {
+				// 表达式已更改或新增，需要更新
+				hasChanged = true
+				// 更新哈希值
+				r.ruleExpressionHashes[ruleID][ruleTag] = newHash
 			}
-			// 合并规则
-			for protocol, rules := range originRules {
-				if _, exists := r.originBlacklistRules[protocol]; !exists {
-					r.originBlacklistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
-				}
-				for ruleType, rule := range rules {
-					r.originBlacklistRules[protocol][ruleType] = rule
-				}
+		}
+
+		// 检查是否有被删除的规则表达式
+		for ruleTag := range r.ruleExpressionHashes[ruleID] {
+			if _, exists := rule.ProtocolRules[ruleTag]; !exists {
+				// 有规则表达式被删除，需要更新
+				hasChanged = true
+				// 从哈希表中删除
+				delete(r.ruleExpressionHashes[ruleID], ruleTag)
 			}
-			for protocol, rules := range compiledRules {
-				if _, exists := r.compiledBlacklistRules[protocol]; !exists {
-					r.compiledBlacklistRules[protocol] = make(map[int]cel.Program)
-				}
-				for ruleType, program := range rules {
-					r.compiledBlacklistRules[protocol][ruleType] = program
-				}
-			}
-		case "whitelist":
-			originRules, compiledRules, err := processRules(env, rule, ruleID)
-			if err != nil {
-				return fmt.Errorf("处理白名单规则失败: %v", err)
-			}
-			// 合并规则
-			for protocol, rules := range originRules {
-				if _, exists := r.originWhitelistRules[protocol]; !exists {
-					r.originWhitelistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
-				}
-				for ruleType, rule := range rules {
-					r.originWhitelistRules[protocol][ruleType] = rule
-				}
-			}
-			for protocol, rules := range compiledRules {
-				if _, exists := r.compiledWhitelistRules[protocol]; !exists {
-					r.compiledWhitelistRules[protocol] = make(map[int]cel.Program)
-				}
-				for ruleType, program := range rules {
-					r.compiledWhitelistRules[protocol][ruleType] = program
-				}
-			}
+		}
+
+		// 如果规则有变化，处理规则
+		if hasChanged {
+			r.processRule(env, rule, ruleID, false)
+		}
+	}
+
+	// 5. 查找删除的规则（已持有写锁，安全地修改共享资源）
+	for ruleID := range r.ruleExpressionHashes {
+		if _, exists := processedRuleIDs[ruleID]; !exists {
+			// 规则已被删除，从哈希表中删除
+			delete(r.ruleExpressionHashes, ruleID)
+
+			// 从规则集合中删除相应规则
+			r.removeRule(ruleID)
 		}
 	}
 
 	return nil
+}
+
+// processRule 处理单个规则，将其添加到规则引擎中
+// 注意：此方法假设调用者已经持有写锁(r.mu.Lock())，不会自行加锁
+func (r *RuleEngine) processRule(env *cel.Env, rule *ruleEngine.Rule, ruleID string, isNew bool) {
+	switch rule.RuleMode {
+	case "blacklist":
+		originRules, compiledRules, err := processRules(env, rule, ruleID)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"rule_id": ruleID,
+				"error":   err.Error(),
+			}).Error("处理黑名单规则失败")
+			return
+		}
+
+		// 合并规则
+		for protocol, rules := range originRules {
+			if _, exists := r.originBlacklistRules[protocol]; !exists {
+				r.originBlacklistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
+			}
+			for ruleType, rule := range rules {
+				r.originBlacklistRules[protocol][ruleType] = rule
+			}
+		}
+		for protocol, rules := range compiledRules {
+			if _, exists := r.compiledBlacklistRules[protocol]; !exists {
+				r.compiledBlacklistRules[protocol] = make(map[int]cel.Program)
+			}
+			for ruleType, program := range rules {
+				r.compiledBlacklistRules[protocol][ruleType] = program
+			}
+		}
+	case "whitelist":
+		originRules, compiledRules, err := processRules(env, rule, ruleID)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"rule_id": ruleID,
+				"error":   err.Error(),
+			}).Error("处理白名单规则失败")
+			return
+		}
+
+		// 合并规则
+		for protocol, rules := range originRules {
+			if _, exists := r.originWhitelistRules[protocol]; !exists {
+				r.originWhitelistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
+			}
+			for ruleType, rule := range rules {
+				r.originWhitelistRules[protocol][ruleType] = rule
+			}
+		}
+		for protocol, rules := range compiledRules {
+			if _, exists := r.compiledWhitelistRules[protocol]; !exists {
+				r.compiledWhitelistRules[protocol] = make(map[int]cel.Program)
+			}
+			for ruleType, program := range rules {
+				r.compiledWhitelistRules[protocol][ruleType] = program
+			}
+		}
+	}
+}
+
+// removeRule 从规则引擎中移除规则
+// 注意：此方法假设调用者已经持有写锁(r.mu.Lock())，不会自行加锁
+func (r *RuleEngine) removeRule(ruleID string) {
+	logrus.WithFields(logrus.Fields{
+		"rule_id":   ruleID,
+		"operation": "remove",
+	}).Info("从规则引擎中移除规则")
+
+	// 目前的实现不支持在不知道具体协议和规则类型的情况下直接删除规则
+	// 因为我们的规则映射表是按协议和类型组织的，而不是按规则ID
+	// 这里需要在实际场景中根据需求完善
+	// 一种可能的解决方案是维护一个ruleID到protocol和type的映射表
+}
+
+// calculateExpressionHash 计算表达式的哈希值
+func calculateExpressionHash(expression string) string {
+	h := sha256.New()
+	h.Write([]byte(expression))
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
