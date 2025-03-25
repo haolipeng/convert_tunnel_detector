@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/labstack/echo/v4"
 )
 
@@ -13,8 +15,11 @@ type Server struct {
 }
 
 // NewServer 创建一个新的 HTTP 服务器
-func NewServer(addr string) *Server {
+func NewServer(cfg *config.Config) *Server {
 	e := echo.New()
+
+	// 构建地址
+	addr := fmt.Sprintf("%s:%s", cfg.API.Host, cfg.API.Port)
 
 	return &Server{
 		echo: e,

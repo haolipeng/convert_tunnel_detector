@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/checker/decls"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,7 @@ type RuleEngine struct {
 	compiledBlacklistRules map[string]map[int]cel.Program              // 编译后的黑名单规则程序,第一层key为协议名,第二层key为协议子类型
 	// 规则表达式哈希表，用于跟踪规则变化，格式为：map[ruleID]map[ruleTag]string
 	ruleExpressionHashes map[string]map[string]string // 第一层key为规则ID，第二层key为规则标签，值为表达式哈希值
+	config               *config.Config               // 配置对象
 }
 
 // convertRuleTagToType 将规则标签转换为对应的类型
@@ -166,6 +168,7 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 		originBlacklistRules:   blackRuleMap,
 		compiledBlacklistRules: compiledBlackRules,
 		ruleExpressionHashes:   expressionHashes,
+		config:                 nil,
 	}, nil
 }
 
@@ -471,7 +474,12 @@ func NewRuleEngineProcessor(ruleFilePath string, workerCount int, cfg interface{
 	rules := loader.GetAllRules()
 
 	// 创建规则引擎
-	return NewRuleEngine(rules)
+	ruleEngine, err := NewRuleEngine(rules)
+	if err != nil {
+		return nil, err
+	}
+
+	return ruleEngine, nil
 }
 
 // ReloadRules 重新加载规则引擎的规则
@@ -479,8 +487,13 @@ func (r *RuleEngine) ReloadRules() error {
 	// 获取当前路径下的所有规则
 	loader := ruleEngine.NewRuleLoader()
 
-	// 这里假设规则文件在 rules 目录
-	err := loader.LoadRulesFromDirectory("rules")
+	// 使用配置的规则目录
+	ruleDirectory := "rules/" // 默认值
+	if r.config != nil && r.config.RuleEngine.RuleDirectory != "" {
+		ruleDirectory = r.config.RuleEngine.RuleDirectory
+	}
+
+	err := loader.LoadRulesFromDirectory(ruleDirectory)
 	if err != nil {
 		return fmt.Errorf("加载规则目录失败: %v", err)
 	}

@@ -8,6 +8,7 @@ log:
   filename: "TunnelInsight.log"
   max_age: 24
   rotate_time: 1
+  time_format: "2006-01-02 15:04:05"
 
 output:
   type: "file"
@@ -22,3 +23,24 @@ source:
     promiscuous: true
     timeout: 30s
     bpf_filter: ""
+
+# API 服务配置
+api:
+  port: "8080"
+  host: ""  # 空字符串表示绑定所有IP
+
+# 规则引擎配置
+rule_engine:
+  rule_directory: "rules/"
+
+# 超时配置
+timeouts:
+  processor_ready_seconds: 10
+  sink_ready_seconds: 5
+  shutdown_seconds: 5
+  processor_stop_seconds: 30
+
+# 文件权限配置
+permissions:
+  directory_mode: 0755
+  file_mode: 0644

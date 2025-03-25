@@ -26,7 +26,7 @@ func InitLogger(cfg *config.Config) error {
 	// 使用配置文件中的设置
 	formatter := &logrus.TextFormatter{
 		FullTimestamp:   true,
-		TimestampFormat: "2006-01-02 15:04:05",
+		TimestampFormat: cfg.Log.TimeFormat,
 	}
 	logrus.SetFormatter(formatter)
 
@@ -55,7 +55,7 @@ func InitLogger(cfg *config.Config) error {
 
 	//1、判断文件路径和文件是否存在，不存在则创建
 	if _, err := os.Stat(cfg.Log.Dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(cfg.Log.Dir, 0755); err != nil {
+		if err := os.MkdirAll(cfg.Log.Dir, os.FileMode(cfg.Permissions.DirectoryMode)); err != nil {
 			return err
 		}
 	}
@@ -74,15 +74,15 @@ func InitLogger(cfg *config.Config) error {
 	if osVersion == "windows" {
 		logWriter, err = rotates.New(
 			logFileName+".%Y%m%d%H%M",
-			rotates.WithMaxAge(24*time.Hour),    //文件最大保存时间
-			rotates.WithRotationTime(time.Hour), //文件切割间隔
+			rotates.WithMaxAge(time.Duration(cfg.Log.MaxAge)*time.Hour),           //文件最大保存时间
+			rotates.WithRotationTime(time.Duration(cfg.Log.RotateTime)*time.Hour), //文件切割间隔
 		)
 	} else if osVersion == "linux" {
 		logWriter, err = rotates.New(
 			logFileName+".%Y%m%d%H%M",
-			rotates.WithLinkName(logFileName),   //文件软链接
-			rotates.WithMaxAge(24*time.Hour),    //文件最大保存时间
-			rotates.WithRotationTime(time.Hour), //文件切割间隔
+			rotates.WithLinkName(logFileName),                                     //文件软链接
+			rotates.WithMaxAge(time.Duration(cfg.Log.MaxAge)*time.Hour),           //文件最大保存时间
+			rotates.WithRotationTime(time.Duration(cfg.Log.RotateTime)*time.Hour), //文件切割间隔
 		)
 	}
 
@@ -99,7 +99,7 @@ func InitLogger(cfg *config.Config) error {
 		logrus.ErrorLevel: logWriter,
 		logrus.FatalLevel: logWriter,
 		logrus.PanicLevel: logWriter,
-	}, &logrus.TextFormatter{})
+	}, &logrus.TextFormatter{TimestampFormat: cfg.Log.TimeFormat, FullTimestamp: true})
 
 	logrus.AddHook(lfHook)
 	return nil
@@ -166,7 +166,7 @@ func main() {
 	}
 
 	// 添加规则引擎处理器
-	ruleEngineProcessor, err := processor.NewRuleEngineProcessor("rules/", cfg.Pipeline.WorkerCount, cfg)
+	ruleEngineProcessor, err := processor.NewRuleEngineProcessor(cfg.RuleEngine.RuleDirectory, cfg.Pipeline.WorkerCount, cfg)
 	if err != nil {
 		logrus.Errorf("Create Rule Engine Processor Failed: %s\n", err)
 		return
@@ -178,7 +178,7 @@ func main() {
 	}
 
 	// 设置输出
-	fileSink, err := sink.NewFileSink("output.json")
+	fileSink, err := sink.NewFileSink(cfg.Output.Filename)
 	if err != nil {
 		logrus.Fatalf("Failed to create file sink: %v", err)
 	}
@@ -192,15 +192,15 @@ func main() {
 	logrus.Info("Pipeline have started successfully")
 
 	// 创建 HTTP API 服务
-	apiServer := api.NewServer(":8080")
+	apiServer := api.NewServer(cfg)
 
 	// 创建规则服务，并注册到 API 服务器
-	ruleService := api.NewRuleService("rules/", ruleEngineProcessor)
+	ruleService := api.NewRuleService(cfg, ruleEngineProcessor)
 	apiServer.RegisterRuleService(ruleService)
 
 	// 在独立的 goroutine 中启动 API 服务器
 	go func() {
-		logrus.Info("Starting HTTP API server on :8080")
+		logrus.Infof("Starting HTTP API server on %s:%s", cfg.API.Host, cfg.API.Port)
 		if err := apiServer.Start(); err != nil {
 			logrus.Errorf("HTTP API server error: %v", err)
 		}
@@ -218,7 +218,7 @@ func main() {
 	cancel() // 触发 context 取消
 
 	// 关闭 HTTP API 服务器
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Timeouts.ShutdownSeconds)*time.Second)
 	defer shutdownCancel()
 
 	if err := apiServer.Stop(shutdownCtx); err != nil {

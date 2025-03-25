@@ -3,14 +3,15 @@ package source
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/haolipeng/gopacket"
 	"github.com/haolipeng/gopacket/pcap"
 	"github.com/sirupsen/logrus"
-	"sync"
-	"time"
 )
 
 type PcapSource struct {
@@ -143,14 +144,7 @@ func (s *PcapSource) cleanup() {
 	}
 
 	if s.output != nil {
-		select {
-		case _, ok := <-s.output:
-			if ok {
-				close(s.output)
-			}
-		default:
-			close(s.output)
-		}
+		close(s.output)
 		s.output = nil
 	}
 }

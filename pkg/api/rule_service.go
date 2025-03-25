@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/processor"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 	"github.com/labstack/echo/v4"
@@ -25,14 +26,16 @@ type RuleService struct {
 	ruleLoader    *ruleEngine.RuleLoader
 	ruleProcessor *processor.RuleEngine
 	ruleDir       string
+	config        *config.Config
 }
 
 // NewRuleService 创建一个新的规则服务
-func NewRuleService(ruleDir string, ruleProcessor *processor.RuleEngine) *RuleService {
+func NewRuleService(cfg *config.Config, ruleProcessor *processor.RuleEngine) *RuleService {
 	// 创建规则加载器
 	loader := ruleEngine.NewRuleLoader()
 
 	// 从本地规则目录加载规则
+	ruleDir := cfg.RuleEngine.RuleDirectory
 	err := loader.LoadRulesFromDirectory(ruleDir)
 	if err != nil {
 		logrus.Errorf("加载规则目录失败: %v", err)
@@ -43,6 +46,7 @@ func NewRuleService(ruleDir string, ruleProcessor *processor.RuleEngine) *RuleSe
 		ruleLoader:    loader,
 		ruleProcessor: ruleProcessor,
 		ruleDir:       ruleDir,
+		config:        cfg,
 	}
 }
 
@@ -161,9 +165,9 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("序列化规则失败: %w", err)))
 	}
 
-	// 保存到文件
+	// 保存到文件，使用配置的文件权限
 	filePath := filepath.Join(rs.ruleDir, ruleID+".json")
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, os.FileMode(rs.config.Permissions.FileMode)); err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("保存规则文件失败: %w", err)))
 	}
 
@@ -179,6 +183,7 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 				"rule_id": ruleID,
 				"error":   err.Error(),
 			}).Warn("重新加载规则引擎失败")
+			return HandleError(c, NewInternalServerError(fmt.Errorf("重新加载规则引擎失败: %w", err)))
 		}
 	}
 
@@ -192,6 +197,9 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 // UpdateRule 更新规则
 func (rs *RuleService) UpdateRule(c echo.Context) error {
 	ruleID := c.Param("rule_id")
+	if ruleID == "" {
+		return HandleError(c, NewRuleIDEmptyError(ruleID))
+	}
 
 	// 第一步：解析请求体中的规则，并验证规则
 	var rule ruleEngine.Rule
@@ -230,8 +238,8 @@ func (rs *RuleService) UpdateRule(c echo.Context) error {
 		filePath = jsonFilePath
 	}
 
-	// 保存到文件
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// 保存到文件，使用配置的文件权限
+	if err := os.WriteFile(filePath, data, os.FileMode(rs.config.Permissions.FileMode)); err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("保存规则文件失败: %w", err)))
 	}
 
