@@ -3,13 +3,14 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync"
+	"time"
+
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/sirupsen/logrus"
-	"sort"
-	"sync"
-	"time"
 )
 
 type pipeline struct {
@@ -200,11 +201,19 @@ func (p *pipeline) Stop() error {
 		close(done)
 	}()
 
+	// 设置超时时间，使用配置中的值，默认为 5 秒
+	timeoutSeconds := 5 * time.Second
+	if p.config != nil && p.config.Timeouts.ProcessorStopSeconds > 0 {
+		timeoutSeconds = time.Duration(p.config.Timeouts.ProcessorStopSeconds) * time.Second
+	}
+
+	logrus.Infof("Waiting up to %s for processors to complete...", timeoutSeconds)
+
 	// 设置超时时间
 	select {
 	case <-done:
 		logrus.Info("All processors completed gracefully")
-	case <-time.After(30 * time.Second):
+	case <-time.After(timeoutSeconds):
 		logrus.Warn("Timeout waiting for processors to complete")
 	}
 

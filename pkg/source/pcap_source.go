@@ -139,11 +139,13 @@ func (s *PcapSource) cleanup() {
 	defer s.mu.Unlock()
 
 	if s.handle != nil {
+		logrus.Debug("Closing pcap handle")
 		s.handle.Close()
 		s.handle = nil
 	}
 
 	if s.output != nil {
+		logrus.Debug("Closing output channel")
 		close(s.output)
 		s.output = nil
 	}

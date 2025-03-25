@@ -130,20 +130,15 @@ func (s *PcapFileSource) cleanup() {
 	defer s.mu.Unlock()
 
 	if s.handle != nil {
+		logrus.Debug("Closing pcap file handle")
 		s.handle.Close()
 		s.handle = nil
 	}
 
 	//关闭数据源的输出channel通道
 	if s.output != nil {
-		select {
-		case _, ok := <-s.output:
-			if ok {
-				close(s.output)
-			}
-		default:
-			close(s.output)
-		}
+		logrus.Debug("Closing pcap file output channel")
+		close(s.output)
 		s.output = nil
 	}
 }

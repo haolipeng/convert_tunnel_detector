@@ -38,7 +38,7 @@ timeouts:
   processor_ready_seconds: 10
   sink_ready_seconds: 5
   shutdown_seconds: 5
-  processor_stop_seconds: 30
+  processor_stop_seconds: 5
 
 # 文件权限配置
 permissions:

@@ -1,0 +1,27 @@
+# 忽略日志目录
+/logs/
+/logs/*
+
+# 忽略输出文件
+output.json
+
+# 编译生成的二进制文件
+*.so
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*~
+
+# IDE 相关文件和目录
+.vscode/
+
+# 操作系统生成的文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

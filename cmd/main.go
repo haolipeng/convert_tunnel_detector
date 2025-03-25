@@ -225,14 +225,16 @@ func main() {
 		logrus.Errorf("Error stopping HTTP API server: %v", err)
 	}
 
-	// 等待处理完成
-	if err := p.Stop(); err != nil {
-		logrus.Errorf("Error stopping pipeline: %v", err)
-	}
-
-	// 停止数据源
+	// 修改关闭顺序：先关闭数据源
+	logrus.Info("Stopping data source...")
 	if err := src.Stop(); err != nil {
 		logrus.Errorf("Error stopping source: %v", err)
+	}
+
+	// 然后关闭 pipeline
+	logrus.Info("Stopping pipeline...")
+	if err := p.Stop(); err != nil {
+		logrus.Errorf("Error stopping pipeline: %v", err)
 	}
 
 	logrus.Info("Shutdown complete")
