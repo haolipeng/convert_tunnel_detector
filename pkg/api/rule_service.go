@@ -447,3 +447,100 @@ func validateRule(rule *ruleEngine.Rule) error {
 
 	return nil
 }
+
+// ValidateRule 验证规则有效性（不保存到文件系统，不加载到规则引擎）
+func (rs *RuleService) ValidateRule(c echo.Context) error {
+	// 解析请求体
+	var rule ruleEngine.Rule
+	if err := c.Bind(&rule); err != nil {
+		return HandleError(c, NewInvalidRuleFormatError(err))
+	}
+
+	// 验证基本字段
+	errors := make(map[string]string)
+	if rule.RuleID == "" {
+		errors["rule_id"] = "规则ID不能为空"
+	}
+
+	if rule.RuleProtocol == "" {
+		errors["rule_protocol"] = "规则协议类型不能为空"
+	}
+
+	if rule.RuleName == "" {
+		errors["rule_name"] = "规则名称不能为空"
+	}
+
+	if rule.RuleMode != "whitelist" && rule.RuleMode != "blacklist" {
+		errors["rule_mode"] = "规则模式必须是 whitelist 或 blacklist"
+	}
+
+	if rule.State != "enable" && rule.State != "disable" && rule.State != "" {
+		errors["state"] = "规则状态必须是 enable 或 disable"
+	}
+
+	// 验证各OSPF包类型的表达式
+	details := make(map[string]map[string]interface{})
+	isValid := len(errors) == 0
+
+	// 验证是否有协议规则
+	if len(rule.ProtocolRules) == 0 {
+		errors["protocol_rules"] = "协议规则不能为空"
+		isValid = false
+	} else {
+		// 验证每个协议规则
+		for packetType, packetRule := range rule.ProtocolRules {
+			packetInfo := map[string]interface{}{
+				"valid":       true,
+				"description": packetRule.Description,
+			}
+
+			// 验证表达式是否为空
+			if packetRule.Expression == "" {
+				packetInfo["valid"] = false
+				packetInfo["error"] = "表达式不能为空"
+				isValid = false
+				details[packetType] = packetInfo
+				continue
+			}
+
+			// 使用RuleEngine验证表达式
+			if rs.ruleProcessor != nil {
+				expressionErr := rs.ruleProcessor.ValidateOSPFExpression(packetType, packetRule.Expression)
+				if expressionErr != nil {
+					packetInfo["valid"] = false
+					packetInfo["error"] = expressionErr.Error()
+					isValid = false
+				} else {
+					packetInfo["valid"] = true
+				}
+			} else {
+				// 如果没有规则处理器，标记为警告而不是失败
+				packetInfo["valid"] = false
+				packetInfo["error"] = "规则引擎不可用，无法验证表达式"
+				packetInfo["warning"] = true
+				logrus.Warn("规则引擎不可用，跳过表达式验证")
+			}
+
+			details[packetType] = packetInfo
+		}
+	}
+
+	// 准备响应数据
+	responseData := map[string]interface{}{
+		"valid": isValid,
+	}
+
+	if len(errors) > 0 {
+		responseData["errors"] = errors
+	}
+
+	if len(details) > 0 {
+		responseData["details"] = details
+	}
+
+	return c.JSON(http.StatusOK, Response{
+		Code:    http.StatusOK,
+		Message: "规则验证完成",
+		Data:    responseData,
+	})
+}

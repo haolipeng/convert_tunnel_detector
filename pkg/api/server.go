@@ -52,4 +52,5 @@ func (s *Server) RegisterRuleService(rs *RuleService) {
 	s.echo.POST("/ruleEngine/configs/:rule_id/stop", rs.StopRule)     // 停止规则
 	s.echo.PUT("/ruleEngine/configs/:rule_id", rs.UpdateRule)         // 更新规则
 	s.echo.POST("/ruleEngine/configs/:rule_id/delete", rs.DeleteRule) // 删除规则
+	s.echo.POST("/ruleEngine/validate", rs.ValidateRule)              // 验证规则有效性
 }

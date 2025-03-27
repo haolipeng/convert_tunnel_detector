@@ -691,3 +691,88 @@ func calculateExpressionHash(expression string) string {
 	h.Write([]byte(expression))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
+
+// ValidateOSPFExpression 验证OSPF表达式是否有效，返回详细错误信息
+func (r *RuleEngine) ValidateOSPFExpression(packetType string, expression string) error {
+	if expression == "" {
+		return fmt.Errorf("表达式不能为空")
+	}
+
+	// 创建临时环境用于验证
+	var opts []cel.EnvOption
+
+	// 添加通用OSPF字段
+	opts = append(opts, cel.Declarations(
+		decls.NewVar("ospf.version", decls.Int),
+		decls.NewVar("ospf.msg", decls.Int),
+		decls.NewVar("ospf.packet_length", decls.Int),
+		decls.NewVar("ospf.srcrouter", decls.String),
+		decls.NewVar("ospf.area_id", decls.String),
+		decls.NewVar("ospf.checksum", decls.Int),
+	))
+
+	// 根据包类型添加特定字段
+	switch packetType {
+	case "HELLO":
+		opts = append(opts, cel.Declarations(
+			decls.NewVar("ospf.hello.network_mask", decls.String),
+			decls.NewVar("ospf.hello.hello_interval", decls.Int),
+			decls.NewVar("ospf.hello.router_priority", decls.Int),
+			decls.NewVar("ospf.hello.router_dead_interval", decls.Int),
+			decls.NewVar("ospf.hello.designated_router", decls.String),
+			decls.NewVar("ospf.hello.backup_designated_router", decls.String),
+			decls.NewVar("ospf.v2.options", decls.Int),
+		))
+	case "DD":
+		opts = append(opts, cel.Declarations(
+			decls.NewVar("ospf.db.interface_mtu", decls.Int),
+			decls.NewVar("ospf.v2.options", decls.Int),
+			decls.NewVar("ospf.db.dd_sequence", decls.Int),
+			decls.NewVar("ospf.db.dd_age", decls.Int),
+		))
+	case "LSR":
+		opts = append(opts, cel.Declarations(
+			decls.NewVar("ospf.link_state_id", decls.String),
+		))
+	case "LSU":
+		opts = append(opts, cel.Declarations(
+			decls.NewVar("ospf.advrouter", decls.String),
+			decls.NewVar("ospf.lsa", decls.Int),
+			decls.NewVar("ospf.lsa.age", decls.Int),
+			decls.NewVar("ospf.lsa.id", decls.String),
+			decls.NewVar("ospf.lsa.seqnum", decls.Int),
+		))
+	case "LSAck":
+		opts = append(opts, cel.Declarations(
+			decls.NewVar("ospf.lsa", decls.Int),
+			decls.NewVar("ospf.lsa.seqnum", decls.Int),
+		))
+	default:
+		return fmt.Errorf("未知的包类型: %s", packetType)
+	}
+
+	// 创建临时CEL环境
+	env, err := cel.NewEnv(opts...)
+	if err != nil {
+		return fmt.Errorf("创建CEL环境失败: %v", err)
+	}
+
+	// 编译表达式
+	ast, iss := env.Compile(expression)
+	if iss.Err() != nil {
+		return fmt.Errorf("表达式编译错误: %v", iss.Err())
+	}
+
+	// 检查表达式
+	checked, iss := env.Check(ast)
+	if iss.Err() != nil {
+		return fmt.Errorf("表达式类型检查错误: %v", iss.Err())
+	}
+
+	// 验证表达式返回值类型必须是布尔型
+	if !checked.OutputType().IsAssignableType(cel.BoolType) {
+		return fmt.Errorf("表达式必须返回布尔值，当前返回: %s", checked.OutputType().String())
+	}
+
+	return nil
+}
