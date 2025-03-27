@@ -172,8 +172,80 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 	}, nil
 }
 
+// Process 是规则引擎的主要处理函数
+// 输入：数据包通道
+// 输出：处理后的数据包通道
+// 处理流程：
+// 1. 首先检查黑名单规则
+// 2. 如果黑名单未匹配，则检查白名单规则
+// 3. 根据规则匹配结果决定数据包的处理动作（转发或告警）
+func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *sync.WaitGroup) (<-chan *types.Packet, error) {
+	out := make(chan *types.Packet)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(out)
+
+		for packet := range in {
+			// 第一步：处理黑名单规则
+			// 使用读锁保护规则访问，因为规则可能被动态更新
+			r.mu.RLock()
+			blacklistMatched, err := r.processBlacklistRule(packet)
+			r.mu.RUnlock()
+
+			if err != nil {
+				packet.LastError = err
+				out <- packet
+				continue
+			}
+
+			// 第二步：如果黑名单未匹配，检查白名单规则
+			// 黑名单规则优先级高于白名单，用于拦截可疑流量
+			if !blacklistMatched {
+				r.mu.RLock()
+				_, err := r.processWhitelistRule(packet)
+				r.mu.RUnlock()
+
+				if err != nil {
+					packet.LastError = err
+				}
+			}
+
+			// 第三步：根据规则匹配结果决定数据包处理动作
+			if packet.RuleResult != nil {
+				if packet.RuleResult.BlackRuleMatched {
+					// 黑名单匹配成功：发现可疑流量，触发告警
+					packet.RuleResult.Action = types.ActionAlert
+				} else if packet.RuleResult.WhiteRuleMatched {
+					// 白名单匹配成功：数据包可信，转发到目标接口
+					packet.RuleResult.Action = types.ActionForward
+				} else {
+					// 白名单匹配失败：未在允许列表中，触发告警
+					packet.RuleResult.Action = types.ActionAlert
+				}
+			} else {
+				// 没有规则匹配：触发告警，因为可能存在未配置规则的情况
+				packet.RuleResult = &types.RuleMatchResult{
+					Action: types.ActionAlert,
+				}
+			}
+
+			// 将处理后的数据包发送到输出通道
+			out <- packet
+		}
+	}()
+
+	return out, nil
+}
+
 // processWhitelistRule 处理白名单规则匹配
-// 此函数假设调用者已经持有读锁
+// 处理流程：
+// 1. 查找对应协议和类型的规则
+// 2. 检查规则状态（是否启用）
+// 3. 构建评估变量
+// 4. 执行规则匹配
+// 5. 设置匹配结果
 func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 	if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
 		if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
@@ -214,7 +286,12 @@ func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 }
 
 // processBlacklistRule 处理黑名单规则匹配
-// 此函数假设调用者已经持有读锁
+// 处理流程：
+// 1. 查找对应协议和类型的规则
+// 2. 检查规则状态（是否启用）
+// 3. 构建评估变量
+// 4. 执行规则匹配
+// 5. 设置匹配结果
 func (r *RuleEngine) processBlacklistRule(packet *types.Packet) (bool, error) {
 	if protocolRules, exists := r.originBlacklistRules[packet.Protocol]; exists {
 		if programs, ok := r.compiledBlacklistRules[packet.Protocol]; ok {
@@ -255,64 +332,11 @@ func (r *RuleEngine) processBlacklistRule(packet *types.Packet) (bool, error) {
 	return false, nil
 }
 
-func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *sync.WaitGroup) (<-chan *types.Packet, error) {
-	out := make(chan *types.Packet)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer close(out)
-
-		for packet := range in {
-			// 处理白名单规则
-			r.mu.RLock()
-			matched, err := r.processWhitelistRule(packet)
-			r.mu.RUnlock()
-
-			if err != nil {
-				packet.LastError = err
-				out <- packet
-				continue
-			}
-
-			// 如果白名单规则没有匹配，继续检查黑名单规则
-			if !matched {
-				r.mu.RLock()
-				_, err := r.processBlacklistRule(packet)
-				r.mu.RUnlock()
-
-				if err != nil {
-					packet.LastError = err
-				}
-			}
-
-			// 根据规则匹配结果设置数据包的处理方式
-			if packet.RuleResult != nil {
-				if packet.RuleResult.WhiteRuleMatched {
-					// 白名单匹配成功：通过PacketForwarder转发
-					packet.RuleResult.Action = types.ActionForward
-				} else if packet.RuleResult.BlackRuleMatched {
-					// 黑名单匹配成功：通过FileSink记录
-					packet.RuleResult.Action = types.ActionAlert
-				} else {
-					// 白名单匹配失败：通过FileSink记录
-					packet.RuleResult.Action = types.ActionAlert
-				}
-			} else {
-				// 没有规则匹配：通过PacketForwarder转发
-				packet.RuleResult = &types.RuleMatchResult{
-					Action: types.ActionForward,
-				}
-			}
-
-			out <- packet
-		}
-	}()
-
-	return out, nil
-}
-
 // buildEvalVars 根据数据包构建评估变量
+// 处理流程：
+// 1. 提取OSPF通用头部字段
+// 2. 根据包类型（Hello/DD/LSR/LSU/LSAck）提取特定字段
+// 3. 构建用于规则评估的变量映射
 func buildEvalVars(packet *types.Packet) map[string]interface{} {
 	// 从packet中提取OSPF字段
 	ospfPacket, ok := packet.ParserResult.(*OSPFPacket)
@@ -442,7 +466,10 @@ func compileRule(env *cel.Env, rule *ruleEngine.Rule, ruleProtocol string) (cel.
 }
 
 // evaluateRule 评估规则
-// 此方法不修改共享状态，但在访问program时应确保持有读锁
+// 处理流程：
+// 1. 检查规则程序是否有效
+// 2. 使用构建的变量执行规则程序
+// 3. 验证并返回匹配结果
 func (r *RuleEngine) evaluateRule(program cel.Program, vars map[string]interface{}) (bool, error) {
 	if program == nil {
 		return false, fmt.Errorf("program is nil")
