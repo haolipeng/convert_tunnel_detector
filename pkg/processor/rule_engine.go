@@ -286,6 +286,25 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 				}
 			}
 
+			// 根据规则匹配结果设置数据包的处理方式
+			if packet.RuleResult != nil {
+				if packet.RuleResult.WhiteRuleMatched {
+					// 白名单匹配成功：通过PacketForwarder转发
+					packet.RuleResult.Action = types.ActionForward
+				} else if packet.RuleResult.BlackRuleMatched {
+					// 黑名单匹配成功：通过FileSink记录
+					packet.RuleResult.Action = types.ActionAlert
+				} else {
+					// 白名单匹配失败：通过FileSink记录
+					packet.RuleResult.Action = types.ActionAlert
+				}
+			} else {
+				// 没有规则匹配：通过PacketForwarder转发
+				packet.RuleResult = &types.RuleMatchResult{
+					Action: types.ActionForward,
+				}
+			}
+
 			out <- packet
 		}
 	}()

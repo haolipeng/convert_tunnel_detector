@@ -51,18 +51,15 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 		for {
 			select {
 			case <-ctx.Done():
-				// 上下文取消，停止转发
 				logrus.Info("Stopping packet forwarder: context cancellation")
 				return
 			case packet, ok := <-in:
-				// 如果输入通道关闭，停止转发
 				if !ok {
 					logrus.Info("Stopping packet forwarder: input channel closed")
 					return
 				}
 
 				if packet == nil {
-					//跳过空数据包
 					logrus.Warnf("packet forwarder received nil packet")
 					continue
 				}
@@ -76,38 +73,38 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 					case <-ctx.Done():
 						return
 					default:
-						// 如果输出通道满，丢弃数据包，需要优化
 						logrus.Warnf("Packet forwarder: output channel full, dropping packet %s", packet.ID)
 						p.metrics.IncrementDropped()
 					}
 					continue
 				}
 
-				// 优先处理黑名单规则匹配
-				if packet.RuleResult.BlackRuleMatched {
-					logrus.Warnf("Packet %s matched blacklist rule, dropping packet", packet.ID)
-					p.metrics.IncrementBlacklistMatched()
-					p.metrics.IncrementDropped()
-					continue
-				}
-
-				// 处理白名单规则匹配
-				if packet.RuleResult.WhiteRuleMatched {
-					logrus.Infof("Packet %s matched whitelist rule, forwarding to %s", packet.ID, p.ifaceName)
-					p.metrics.IncrementWhitelistMatched()
-
-					// 规则匹配成功，转发数据包
+				// 根据规则动作处理数据包
+				switch packet.RuleResult.Action {
+				case types.ActionForward:
+					// 需要转发的数据包
+					logrus.Infof("Packet %s action is forward, forwarding to %s", packet.ID, p.ifaceName)
 					if err := p.forwardPacket(packet); err != nil {
 						logrus.Errorf("Failed to forward packet %s: %v", packet.ID, err)
 						p.metrics.IncrementDropped()
 						continue
 					}
-
 					p.metrics.IncrementProcessed()
+					p.metrics.IncrementWhitelistMatched()
 					logrus.Debugf("Successfully forwarded packet %s", packet.ID)
+
+				case types.ActionLog:
+					// 需要记录的数据包，直接传递给下一个处理器
+					logrus.Debugf("Packet %s action is log, passing to next processor", packet.ID)
+					if packet.RuleResult.BlackRuleMatched {
+						p.metrics.IncrementBlacklistMatched()
+					}
+
+				default:
+					logrus.Warnf("Packet %s has unknown action: %v", packet.ID, packet.RuleResult.Action)
 				}
 
-				// 既没有匹配白名单也没有匹配黑名单，继续传递给下一个处理器
+				// 继续传递给下一个处理器
 				select {
 				case out <- packet:
 					p.metrics.IncrementProcessed()

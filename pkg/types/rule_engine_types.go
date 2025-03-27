@@ -8,12 +8,13 @@ type RuleMatchResult struct {
 	BlackRuleMatched bool                     // 黑名单规则是否匹配
 	WhiteRule        *ruleEngine.ProtocolRule // 匹配的白名单规则
 	BlackRule        *ruleEngine.ProtocolRule // 匹配的黑名单规则
+	Action           RuleAction               // 数据包处理动作
 }
 
 // RuleAction 表示规则匹配后的动作
 type RuleAction uint8
 
 const (
-	ActionDeny  RuleAction = iota + 1 // 拒绝
-	ActionAllow                       // 允许
+	ActionForward RuleAction = iota + 1 // 转发
+	ActionAlert                         // 告警
 )
