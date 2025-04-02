@@ -1,6 +1,6 @@
 {
     "state": "enable",
-    "rule_id": "ospf_55667788",
+    "rule_id": "ospf_rules_blacklist",
     "rule_protocol": "ospf",
     "rule_tag": "ospf,qingteng",
     "rule_name": "convert_channal_by_ospf",

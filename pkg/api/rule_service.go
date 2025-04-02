@@ -208,12 +208,13 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 
 // UpdateRule 更新规则
 func (rs *RuleService) UpdateRule(c echo.Context) error {
+	// 1. 检查规则是否已存在
 	ruleID := c.Param("rule_id")
 	if ruleID == "" {
 		return HandleError(c, NewRuleIDEmptyError(ruleID))
 	}
 
-	// 第一步：解析请求体中的规则，并验证规则
+	// 2. 解析请求体中的规则
 	var rule ruleEngine.Rule
 	if err := c.Bind(&rule); err != nil {
 		return HandleError(c, NewInvalidRuleFormatError(err))
@@ -222,59 +223,44 @@ func (rs *RuleService) UpdateRule(c echo.Context) error {
 	// 保持规则ID一致
 	rule.RuleID = ruleID
 
-	// 验证规则有效性
+	// 3. 验证规则的有效性
 	if err := validateRule(&rule); err != nil {
 		return HandleError(c, NewRuleValidationError(err))
 	}
 
-	// 第二步：在内存映射表中查找规则是否存在
-	if _, exists := rs.ruleLoader.GetRule(ruleID); !exists {
-		return HandleError(c, NewRuleNotFoundError(ruleID))
+	// 4. 更新 RuleLoader 中的规则
+	if err := rs.ruleLoader.UpdateRule(ruleID, &rule); err != nil {
+		return HandleError(c, NewInternalServerError(fmt.Errorf("更新规则加载器失败: %w", err)))
 	}
 
-	// 将更新的规则持久化到文件
+	// 5. 更新 RuleEngine 中的规则
+	if rs.ruleProcessor != nil {
+		// 使用 RuleEngine 已有的 CEL 环境处理规则
+		if err := rs.ruleProcessor.ProcessRule(rs.ruleProcessor.Env, &rule, ruleID, false); err != nil {
+			return HandleError(c, NewInternalServerError(fmt.Errorf("更新规则引擎失败: %w", err)))
+		}
+	}
+
+	// 6. 将规则修改更新到本地文件
 	data, err := json.MarshalIndent(rule, "", "  ")
 	if err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("序列化规则失败: %w", err)))
 	}
 
 	// 确定文件路径
-	var filePath string
-	jsonFilePath := filepath.Join(rs.ruleDir, ruleID+".json")
-
-	// 检查JSON文件是否存在
-	if _, err := os.Stat(jsonFilePath); err == nil {
-		filePath = jsonFilePath
-	} else {
-		// 如果文件不存在，创建新的JSON文件
-		filePath = jsonFilePath
-	}
+	filePath := filepath.Join(rs.ruleDir, ruleID+".json")
 
 	// 保存到文件，使用配置的文件权限
 	if err := os.WriteFile(filePath, data, os.FileMode(rs.config.Permissions.FileMode)); err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("保存规则文件失败: %w", err)))
 	}
 
-	// 重新加载规则到内存映射表
-	if err := rs.ruleLoader.LoadRuleFromFile(filePath); err != nil {
-		return HandleError(c, NewInternalServerError(fmt.Errorf("加载规则失败: %w", err)))
-	}
-
-	// 第三步：更新规则引擎RuleEngine中的匹配规则
-	if rs.ruleProcessor != nil {
-		// 使用增量更新功能更新规则
-		if err := rs.ruleProcessor.ReloadRules(); err != nil {
-			logrus.WithFields(logrus.Fields{
-				"rule_id": ruleID,
-				"error":   err.Error(),
-			}).Warn("重新加载规则引擎失败")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"rule_id":   ruleID,
-				"operation": "update",
-			}).Info("规则更新成功")
-		}
-	}
+	// 7. 记录相关日志
+	logrus.WithFields(logrus.Fields{
+		"rule_id":   ruleID,
+		"operation": "update",
+		"file":      filePath,
+	}).Info("规则更新成功")
 
 	return c.JSON(http.StatusOK, Response{
 		Code:    http.StatusOK,

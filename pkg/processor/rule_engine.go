@@ -60,9 +60,11 @@ func processRules(env *cel.Env, rule *ruleEngine.Rule, ruleID string) (map[strin
 
 	// 确保协议类型的map已初始化
 	if _, exists := ruleMap[rule.RuleProtocol]; !exists {
+		//协议类型不存在，则创建对应map
 		ruleMap[rule.RuleProtocol] = make(map[int]*ruleEngine.ProtocolRule)
 	}
 	if _, exists := compiledRules[rule.RuleProtocol]; !exists {
+		// 确保编译后规则列表已初始化
 		compiledRules[rule.RuleProtocol] = make(map[int]cel.Program)
 	}
 
@@ -136,33 +138,51 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 		return nil, fmt.Errorf("create cel env failed: %v", err)
 	}
 
-	var whiteRuleMap, blackRuleMap map[string]map[int]*ruleEngine.ProtocolRule
-	var compiledWhiteRules, compiledBlackRules map[string]map[int]cel.Program
-
-	// 创建表达式哈希表
+	// 初始化空的规则映射
+	var whiteRuleMap map[string]map[int]*ruleEngine.ProtocolRule
+	var blackRuleMap map[string]map[int]*ruleEngine.ProtocolRule
+	var compiledWhiteRules map[string]map[int]cel.Program
+	var compiledBlackRules map[string]map[int]cel.Program
 	expressionHashes := make(map[string]map[string]string)
 
-	// 遍历所有规则
-	for ruleID, rule := range rules {
-		// 为每个规则创建哈希表
-		expressionHashes[ruleID] = make(map[string]string)
+	// 如果有规则，则处理规则
+	if len(rules) > 0 {
+		// 遍历所有规则
+		for ruleID, rule := range rules {
+			// 为每个规则创建哈希表
+			expressionHashes[ruleID] = make(map[string]string)
 
-		// 计算并存储每个规则表达式的哈希值
-		for ruleTag, protocolRule := range rule.ProtocolRules {
-			expressionHashes[ruleID][ruleTag] = calculateExpressionHash(protocolRule.Expression)
-		}
+			// 计算并存储每个规则表达式的哈希值
+			for protoSubType, protocolRule := range rule.ProtocolRules {
+				expressionHashes[ruleID][protoSubType] = calculateExpressionHash(protocolRule.Expression)
+			}
 
-		var err error
-		switch rule.RuleMode {
-		case "blacklist":
-			blackRuleMap, compiledBlackRules, err = processRules(env, rule, ruleID)
-		case "whitelist":
-			whiteRuleMap, compiledWhiteRules, err = processRules(env, rule, ruleID)
-		}
-		if err != nil {
-			return nil, err
+			var err error
+			switch rule.RuleMode {
+			case "blacklist":
+				blackRuleMap, compiledBlackRules, err = processRules(env, rule, ruleID)
+			case "whitelist":
+				whiteRuleMap, compiledWhiteRules, err = processRules(env, rule, ruleID)
+			}
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
+
+	//初始化规则引擎时，如果规则为空，则创建空的规则映射表
+	if len(rules) == 0 {
+		whiteRuleMap = make(map[string]map[int]*ruleEngine.ProtocolRule)
+		blackRuleMap = make(map[string]map[int]*ruleEngine.ProtocolRule)
+		compiledWhiteRules = make(map[string]map[int]cel.Program)
+		compiledBlackRules = make(map[string]map[int]cel.Program)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"white_rules": len(whiteRuleMap),
+		"black_rules": len(blackRuleMap),
+		"total_rules": len(rules),
+	}).Debug("规则引擎初始化完成")
 
 	return &RuleEngine{
 		Env:                    env,
@@ -679,7 +699,7 @@ func (r *RuleEngine) ProcessRule(env *cel.Env, rule *ruleEngine.Rule, ruleID str
 			return fmt.Errorf("处理黑名单规则失败: %w", err)
 		}
 
-		// 合并规则
+		// 将现有规则和原有规则进行合并
 		for protocol, rules := range originRules {
 			if _, exists := r.originBlacklistRules[protocol]; !exists {
 				r.originBlacklistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
@@ -706,7 +726,7 @@ func (r *RuleEngine) ProcessRule(env *cel.Env, rule *ruleEngine.Rule, ruleID str
 			return fmt.Errorf("处理白名单规则失败: %w", err)
 		}
 
-		// 合并规则
+		// 将现有规则和原有规则进行合并
 		for protocol, rules := range originRules {
 			if _, exists := r.originWhitelistRules[protocol]; !exists {
 				r.originWhitelistRules[protocol] = make(map[int]*ruleEngine.ProtocolRule)
@@ -716,6 +736,7 @@ func (r *RuleEngine) ProcessRule(env *cel.Env, rule *ruleEngine.Rule, ruleID str
 			}
 		}
 		for protocol, rules := range compiledRules {
+			// 如果协议对应的编译后规则列表不存在，则创建新的编译后规则列表
 			if _, exists := r.compiledWhitelistRules[protocol]; !exists {
 				r.compiledWhitelistRules[protocol] = make(map[int]cel.Program)
 			}

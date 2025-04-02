@@ -100,3 +100,15 @@ func (rl *RuleLoader) AddRule(ruleID string, rule *Rule) error {
 
 	return nil
 }
+
+// UpdateRule 更新规则
+func (rl *RuleLoader) UpdateRule(ruleID string, rule *Rule) error {
+	// 检查规则是否存在
+	if _, exists := rl.rules[ruleID]; !exists {
+		return fmt.Errorf("规则 %s 不存在", ruleID)
+	}
+
+	// 更新规则
+	rl.rules[ruleID] = rule
+	return nil
+}
