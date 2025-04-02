@@ -15,7 +15,7 @@ output:
   filename: "output.json"
 
 source:
-  type: "live"  # "file" 或 "live"
+  type: "file"  # "file" 或 "live"
   filename: "ospf_hello_one.pcap"  # 当 type 为 "file" 时使用
   interface:  # 当 type 为 "live" 时使用
     name: "ens34"
@@ -27,7 +27,7 @@ source:
 # API 服务配置
 api:
   port: "8080"
-  host: ""  # 空字符串表示绑定所有IP
+  host: "10.107.12.243"  # 空字符串表示绑定所有IP
 
 # 规则引擎配置
 rule_engine:

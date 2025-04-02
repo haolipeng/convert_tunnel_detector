@@ -8,7 +8,7 @@ import (
 
 // TestCompileRule 是 compileRule 函数的测试包装器
 func TestCompileRule(env *cel.Env, rule *ruleEngine.Rule, ruleProtocol string) (cel.Program, error) {
-	return compileRule(env, rule, ruleProtocol)
+	return compileRuleToProgram(env, rule, ruleProtocol)
 }
 
 // CreateTestRuleEngine 创建一个用于测试的规则引擎
@@ -19,7 +19,7 @@ func CreateTestRuleEngine() (*RuleEngine, error) {
 	}
 
 	return &RuleEngine{
-		env: env,
+		Env: env,
 	}, nil
 }
 

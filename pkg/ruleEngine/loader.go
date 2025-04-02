@@ -12,7 +12,7 @@ import (
 
 // RuleLoader 负责加载和管理规则
 type RuleLoader struct {
-	rules map[string]*Rule // 使用map存储规则，key为规则ID
+	rules map[string]*Rule // 使用map存储规则,key为规则ID,value为规则详情
 }
 
 // NewRuleLoader 创建一个新的规则加载器
@@ -86,4 +86,17 @@ func (rl *RuleLoader) GetRule(ruleID string) (*Rule, bool) {
 // GetAllRules 获取所有规则
 func (rl *RuleLoader) GetAllRules() map[string]*Rule {
 	return rl.rules
+}
+
+// AddRule 添加新规则到 RuleLoader
+func (rl *RuleLoader) AddRule(ruleID string, rule *Rule) error {
+	// 检查规则是否已存在
+	if _, exists := rl.rules[ruleID]; exists {
+		return fmt.Errorf("规则 %s 已存在", ruleID)
+	}
+
+	// 添加规则
+	rl.rules[ruleID] = rule
+
+	return nil
 }

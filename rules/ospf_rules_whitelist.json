@@ -1,6 +1,6 @@
 {
     "state": "enable",
-    "rule_id": "ospf_whitelist_001",
+    "rule_id": "ospf_11223344",
     "rule_protocol": "ospf",
     "rule_tag": "ospf,qingteng",
     "rule_name": "ospf_whitelist_rules",

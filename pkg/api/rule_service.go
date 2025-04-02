@@ -115,7 +115,9 @@ func (rs *RuleService) GetRuleConfigs(c echo.Context) error {
 
 // GetRuleConfig 获取特定规则配置
 func (rs *RuleService) GetRuleConfig(c echo.Context) error {
+	// 优先从路径参数获取rule_id，如果没有则从查询参数获取
 	ruleID := c.Param("rule_id")
+
 	if ruleID == "" {
 		return HandleError(c, NewRuleIDEmptyError(ruleID))
 	}
@@ -140,52 +142,62 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 		return HandleError(c, NewRuleIDEmptyError(ruleID))
 	}
 
-	// 检查规则是否已存在
+	// 1. 检查规则是否已存在
 	if _, exists := rs.ruleLoader.GetRule(ruleID); exists {
 		return HandleError(c, NewRuleAlreadyExistsError(ruleID))
 	}
 
-	// 解析请求体
+	// 2. 解析请求体中的规则
 	var rule ruleEngine.Rule
 	if err := c.Bind(&rule); err != nil {
 		return HandleError(c, NewInvalidRuleFormatError(err))
 	}
 
-	// 设置规则ID
-	rule.RuleID = ruleID
+	// 确保规则ID一致性
+	if ruleID != rule.RuleID {
+		return HandleError(c, NewInvalidRuleFormatError(fmt.Errorf("规则ID不匹配")))
+	}
 
-	// 验证规则
+	// 3. 验证规则的有效性
 	if err := validateRule(&rule); err != nil {
 		return HandleError(c, NewRuleValidationError(err))
 	}
 
-	// 序列化为JSON
+	// 4. 更新 RuleLoader 中的规则
+	if err := rs.ruleLoader.AddRule(ruleID, &rule); err != nil {
+		return HandleError(c, NewInternalServerError(fmt.Errorf("更新规则加载器失败: %w", err)))
+	}
+
+	// 5. 更新 RuleEngine 中的规则
+	if rs.ruleProcessor != nil {
+		// 检查 规则引擎的CEL环境 是否已初始化
+		if rs.ruleProcessor.Env == nil {
+			return HandleError(c, NewInternalServerError(fmt.Errorf("规则引擎环境未初始化")))
+		}
+
+		// 使用 RuleEngine 已有的 CEL 环境处理规则
+		if err := rs.ruleProcessor.ProcessRule(rs.ruleProcessor.Env, &rule, ruleID, true); err != nil {
+			return HandleError(c, NewInternalServerError(fmt.Errorf("更新规则引擎失败: %w", err)))
+		}
+	}
+
+	// 6. 将规则保存到本地文件
 	data, err := json.MarshalIndent(rule, "", "  ")
 	if err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("序列化规则失败: %w", err)))
 	}
 
-	// 保存到文件，使用配置的文件权限
 	filePath := filepath.Join(rs.ruleDir, ruleID+".json")
 	if err := os.WriteFile(filePath, data, os.FileMode(rs.config.Permissions.FileMode)); err != nil {
 		return HandleError(c, NewInternalServerError(fmt.Errorf("保存规则文件失败: %w", err)))
 	}
 
-	// 重新加载规则
-	if err := rs.ruleLoader.LoadRuleFromFile(filePath); err != nil {
-		return HandleError(c, NewInternalServerError(fmt.Errorf("加载规则失败: %w", err)))
-	}
-
-	// 通知规则处理器更新规则
-	if rs.ruleProcessor != nil {
-		if err := rs.ruleProcessor.ReloadRules(); err != nil {
-			logrus.WithFields(logrus.Fields{
-				"rule_id": ruleID,
-				"error":   err.Error(),
-			}).Warn("重新加载规则引擎失败")
-			return HandleError(c, NewInternalServerError(fmt.Errorf("重新加载规则引擎失败: %w", err)))
-		}
-	}
+	// 记录成功日志
+	logrus.WithFields(logrus.Fields{
+		"rule_id": ruleID,
+		"mode":    rule.RuleMode,
+		"state":   rule.State,
+	}).Info("规则创建成功")
 
 	return c.JSON(http.StatusCreated, Response{
 		Code:    http.StatusCreated,

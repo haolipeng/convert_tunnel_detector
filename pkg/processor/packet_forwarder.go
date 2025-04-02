@@ -93,7 +93,7 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 					p.metrics.IncrementWhitelistMatched()
 					logrus.Debugf("Successfully forwarded packet %s", packet.ID)
 
-				case types.ActionLog:
+				case types.ActionAlert:
 					// 需要记录的数据包，直接传递给下一个处理器
 					logrus.Debugf("Packet %s action is log, passing to next processor", packet.ID)
 					if packet.RuleResult.BlackRuleMatched {

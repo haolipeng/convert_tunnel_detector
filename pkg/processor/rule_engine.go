@@ -25,7 +25,7 @@ const (
 
 type RuleEngine struct {
 	mu                     sync.RWMutex // 互斥锁，保护共享资源
-	env                    *cel.Env
+	Env                    *cel.Env
 	originWhitelistRules   map[string]map[int]*ruleEngine.ProtocolRule // 原始的白名单规则,第一层key为协议名,第二层key为协议子类型
 	compiledWhitelistRules map[string]map[int]cel.Program              // 编译后的白名单规则程序,第一层key为协议名,第二层key为协议子类型
 	originBlacklistRules   map[string]map[int]*ruleEngine.ProtocolRule // 原始的黑名单规则,第一层key为协议名,第二层key为协议子类型
@@ -35,7 +35,7 @@ type RuleEngine struct {
 	config               *config.Config               // 配置对象
 }
 
-// convertRuleTagToType 将规则标签转换为对应的类型
+// convertRuleTagToType 将规则标签转换为对应的枚举类型
 func convertRuleTagToType(ruleTag string) (int, bool) {
 	switch ruleTag {
 	case "HELLO":
@@ -67,26 +67,29 @@ func processRules(env *cel.Env, rule *ruleEngine.Rule, ruleID string) (map[strin
 	}
 
 	// 遍历每个规则的 ProtocolRules
-	for ruleTag, ruleInfo := range rule.ProtocolRules {
-		ruleType, ok := convertRuleTagToType(ruleTag)
+	for protoSubType, ruleInfo := range rule.ProtocolRules {
+		// 将协议子类型转换为对应的枚举类型
+		subType, ok := convertRuleTagToType(protoSubType)
 		if !ok {
 			continue
 		}
 
 		// 预编译规则
-		program, err := compileRule(env, rule, ruleTag)
+		program, err := compileRuleToProgram(env, rule, protoSubType)
 		if err != nil {
-			return nil, nil, fmt.Errorf("compile rule failed for rule %s, type %d: %v", ruleID, ruleType, err)
+			return nil, nil, fmt.Errorf("compile rule failed for rule %s, type %d: %v", ruleID, subType, err)
 		}
 
-		// 添加规则
-		ruleMap[rule.RuleProtocol][ruleType] = &ruleEngine.ProtocolRule{
+		// 添加规则，并保存到规则map中
+		ruleMap[rule.RuleProtocol][subType] = &ruleEngine.ProtocolRule{
 			State:       ruleInfo.State,
 			Expression:  ruleInfo.Expression,
 			Description: ruleInfo.Description,
 			Type:        ruleInfo.Type,
 		}
-		compiledRules[rule.RuleProtocol][ruleType] = program
+
+		// 添加编译后的规则，并保存到规则map中
+		compiledRules[rule.RuleProtocol][subType] = program
 	}
 
 	return ruleMap, compiledRules, nil
@@ -162,7 +165,7 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 	}
 
 	return &RuleEngine{
-		env:                    env,
+		Env:                    env,
 		originWhitelistRules:   whiteRuleMap,
 		compiledWhitelistRules: compiledWhiteRules,
 		originBlacklistRules:   blackRuleMap,
@@ -225,9 +228,9 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 					packet.RuleResult.Action = types.ActionAlert
 				}
 			} else {
-				// 没有规则匹配：触发告警，因为可能存在未配置规则的情况
+				// 没有规则匹配：默认转发，因为可能存在未配置规则的情况，防止误拦截关键数据包
 				packet.RuleResult = &types.RuleMatchResult{
-					Action: types.ActionAlert,
+					Action: types.ActionForward,
 				}
 			}
 
@@ -431,32 +434,34 @@ func buildEvalVars(packet *types.Packet) map[string]interface{} {
 	return vars
 }
 
-// compileRule 编译CEL规则
-func compileRule(env *cel.Env, rule *ruleEngine.Rule, ruleProtocol string) (cel.Program, error) {
+// compileRuleToProgram 编译CEL规则
+func compileRuleToProgram(env *cel.Env, rule *ruleEngine.Rule, ruleProtocol string) (cel.Program, error) {
 	if rule == nil {
 		return nil, fmt.Errorf("rule is nil")
 	}
 
+	// 1.检查规则是否存在
 	protocolRule, ok := rule.ProtocolRules[ruleProtocol]
 	if !ok {
 		return nil, fmt.Errorf("no expressions found for rule protocol: %s", ruleProtocol)
 	}
 
+	// 2.获取规则的表达式
 	finalExpression := protocolRule.Expression
 
-	// 编译表达式
+	// 3.编译表达式，生成AST
 	ast, iss := env.Compile(finalExpression)
 	if iss.Err() != nil {
 		return nil, fmt.Errorf("compile expression failed: %v", iss.Err())
 	}
 
-	// 检查表达式
+	// 4.检查表达式是否正确
 	checked, iss := env.Check(ast)
 	if iss.Err() != nil {
 		return nil, fmt.Errorf("check expression failed: %v", iss.Err())
 	}
 
-	// 创建程序
+	// 5.将AST转换为程序Program
 	program, err := env.Program(checked)
 	if err != nil {
 		return nil, fmt.Errorf("create program failed: %v", err)
@@ -499,7 +504,7 @@ func (r *RuleEngine) Name() string {
 }
 
 func (r *RuleEngine) CheckReady() error {
-	if r.env == nil {
+	if r.Env == nil {
 		return types.ErrProcessorNotReady
 	}
 	return nil
@@ -592,7 +597,7 @@ func (r *RuleEngine) ReloadRules() error {
 	defer r.mu.Unlock()
 
 	// 更新环境
-	r.env = env
+	r.Env = env
 
 	// 跟踪已处理的规则ID集合
 	processedRuleIDs := make(map[string]bool)
@@ -606,7 +611,9 @@ func (r *RuleEngine) ReloadRules() error {
 			// 新规则，需要处理
 			r.ruleExpressionHashes[ruleID] = make(map[string]string)
 			// 处理新规则
-			r.processRule(env, rule, ruleID, true)
+			if err := r.ProcessRule(env, rule, ruleID, true); err != nil {
+				return fmt.Errorf("处理新规则失败: %w", err)
+			}
 			continue
 		}
 
@@ -638,7 +645,9 @@ func (r *RuleEngine) ReloadRules() error {
 
 		// 如果规则有变化，处理规则
 		if hasChanged {
-			r.processRule(env, rule, ruleID, false)
+			if err := r.ProcessRule(env, rule, ruleID, false); err != nil {
+				return fmt.Errorf("处理规则变化失败: %w", err)
+			}
 		}
 	}
 
@@ -656,9 +665,9 @@ func (r *RuleEngine) ReloadRules() error {
 	return nil
 }
 
-// processRule 处理单个规则，将其添加到规则引擎中
+// ProcessRule 处理单个规则，将其添加到规则引擎中
 // 注意：此方法假设调用者已经持有写锁(r.mu.Lock())，不会自行加锁
-func (r *RuleEngine) processRule(env *cel.Env, rule *ruleEngine.Rule, ruleID string, isNew bool) {
+func (r *RuleEngine) ProcessRule(env *cel.Env, rule *ruleEngine.Rule, ruleID string, isNew bool) error {
 	switch rule.RuleMode {
 	case "blacklist":
 		originRules, compiledRules, err := processRules(env, rule, ruleID)
@@ -667,7 +676,7 @@ func (r *RuleEngine) processRule(env *cel.Env, rule *ruleEngine.Rule, ruleID str
 				"rule_id": ruleID,
 				"error":   err.Error(),
 			}).Error("处理黑名单规则失败")
-			return
+			return fmt.Errorf("处理黑名单规则失败: %w", err)
 		}
 
 		// 合并规则
@@ -694,7 +703,7 @@ func (r *RuleEngine) processRule(env *cel.Env, rule *ruleEngine.Rule, ruleID str
 				"rule_id": ruleID,
 				"error":   err.Error(),
 			}).Error("处理白名单规则失败")
-			return
+			return fmt.Errorf("处理白名单规则失败: %w", err)
 		}
 
 		// 合并规则
@@ -714,7 +723,11 @@ func (r *RuleEngine) processRule(env *cel.Env, rule *ruleEngine.Rule, ruleID str
 				r.compiledWhitelistRules[protocol][ruleType] = program
 			}
 		}
+	default:
+		return fmt.Errorf("不支持的规则模式: %s", rule.RuleMode)
 	}
+
+	return nil
 }
 
 // removeRule 从规则引擎中移除规则

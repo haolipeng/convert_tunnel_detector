@@ -36,7 +36,7 @@ func TestRuleCompilation(t *testing.T) {
 	}
 
 	// 直接调用compileRule函数
-	program, err := compileRule(env, rule, "HELLO")
+	program, err := compileRuleToProgram(env, rule, "HELLO")
 	assert.NoError(t, err)
 	assert.NotNil(t, program)
 
@@ -56,7 +56,7 @@ func TestRuleCompilation(t *testing.T) {
 	}
 
 	// 规则编译应该成功，即使规则被禁用
-	program, err = compileRule(env, disabledRule, "HELLO")
+	program, err = compileRuleToProgram(env, disabledRule, "HELLO")
 	assert.NoError(t, err)
 	assert.NotNil(t, program)
 }
