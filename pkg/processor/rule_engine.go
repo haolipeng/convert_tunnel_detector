@@ -264,13 +264,14 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 
 // processWhitelistRule 处理白名单规则匹配
 // 处理流程：
-// 1. 查找对应协议和类型的规则
+// 1. 查找指定协议和子类型对应的规则
 // 2. 检查规则状态（是否启用）
 // 3. 构建评估变量
 // 4. 执行规则匹配
 // 5. 设置匹配结果
 func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 	if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
+		// 如果编译后的规则列表不存在，则创建新的编译后规则列表
 		if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
 			if program, ok := programs[int(packet.SubType)]; ok {
 				// 获取原始规则信息，并进行有效性检查
@@ -280,7 +281,7 @@ func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 				}
 
 				// 检查规则状态，只有启用状态的规则才会被匹配
-				if originalRule.State != "enable" {
+				if originalRule.State != "enable" || originalRule.State == "disable" {
 					// 规则未启用，跳过匹配
 					return false, nil
 				}

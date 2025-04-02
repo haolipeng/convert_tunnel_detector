@@ -46,12 +46,10 @@ func (s *Server) GetEcho() *echo.Echo {
 // RegisterRuleService 注册规则服务
 func (s *Server) RegisterRuleService(rs *RuleService) {
 	// 注册路由
-	s.echo.GET("/ruleEngine/configs", rs.GetRuleConfigs)            // 获取所有规则配置
-	s.echo.GET("/ruleEngine/configs/:rule_id", rs.GetRuleConfig)    // 获取指定规则配置（路径参数方式）
-	s.echo.POST("/ruleEngine/configs/:rule_id", rs.CreateRule)      // 创建规则
-	s.echo.POST("/ruleEngine/configs/:rule_id/start", rs.StartRule) // 启动规则
-	s.echo.POST("/ruleEngine/configs/:rule_id/stop", rs.StopRule)   // 停止规则
-	s.echo.PATCH("/ruleEngine/configs/:rule_id", rs.UpdateRule)     // 更新规则
-	s.echo.DELETE("/ruleEngine/configs/:rule_id", rs.DeleteRule)    // 删除规则
-	s.echo.POST("/ruleEngine/validate", rs.ValidateRule)            // 验证规则有效性
+	s.echo.GET("/ruleEngine/configs", rs.GetRuleConfigs)         // 获取所有规则配置
+	s.echo.GET("/ruleEngine/configs/:rule_id", rs.GetRuleConfig) // 获取指定规则配置（路径参数方式）
+	s.echo.POST("/ruleEngine/configs/:rule_id", rs.CreateRule)   // 创建规则
+	s.echo.PATCH("/ruleEngine/configs/:rule_id", rs.UpdateRule)  // 更新规则
+	s.echo.DELETE("/ruleEngine/configs/:rule_id", rs.DeleteRule) // 删除规则
+	s.echo.POST("/ruleEngine/validate", rs.ValidateRule)         // 验证规则有效性
 }
