@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/processor"
@@ -159,7 +160,7 @@ func (rs *RuleService) CreateRule(c echo.Context) error {
 	}
 
 	// 3. 验证规则的有效性
-	if err := validateRule(&rule); err != nil {
+	if err := validateRule(&rule, rs.ruleProcessor); err != nil {
 		return HandleError(c, NewRuleValidationError(err))
 	}
 
@@ -224,7 +225,7 @@ func (rs *RuleService) UpdateRule(c echo.Context) error {
 	rule.RuleID = ruleID
 
 	// 3. 验证规则的有效性
-	if err := validateRule(&rule); err != nil {
+	if err := validateRule(&rule, rs.ruleProcessor); err != nil {
 		return HandleError(c, NewRuleValidationError(err))
 	}
 
@@ -271,71 +272,75 @@ func (rs *RuleService) UpdateRule(c echo.Context) error {
 
 // DeleteRule 删除规则
 func (rs *RuleService) DeleteRule(c echo.Context) error {
+	// 1. 检查规则是否已存在
 	ruleID := c.Param("rule_id")
+	if ruleID == "" {
+		return HandleError(c, NewBadRequestError(fmt.Errorf("规则ID不能为空")))
+	}
 
-	// 检查规则是否存在
-	if _, exists := rs.ruleLoader.GetRule(ruleID); !exists {
+	// 2. 在 RuleLoader 中检查规则是否存在
+	rule, exists := rs.ruleLoader.GetRule(ruleID)
+	if !exists {
 		return HandleError(c, NewRuleNotFoundError(ruleID))
 	}
 
-	// 尝试删除JSON和YAML格式的文件
+	logrus.WithFields(logrus.Fields{
+		"rule_id":  ruleID,
+		"protocol": rule.RuleProtocol,
+		"mode":     rule.RuleMode,
+	}).Debug("开始删除规则")
+
+	// 3. 从 RuleLoader 中删除规则
+	if err := rs.ruleLoader.DeleteRule(ruleID); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"rule_id": ruleID,
+			"error":   err.Error(),
+		}).Error("从 RuleLoader 中删除规则失败")
+		return HandleError(c, NewInternalServerError(fmt.Errorf("从规则加载器中删除规则失败: %v", err)))
+	}
+
+	// 4. 从 RuleEngine 中删除规则
+	if rs.ruleProcessor != nil {
+		if err := rs.ruleProcessor.DeleteRule(ruleID); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"rule_id": ruleID,
+				"error":   err.Error(),
+			}).Error("从 RuleEngine 中删除规则失败")
+			return HandleError(c, NewInternalServerError(fmt.Errorf("从规则引擎中删除规则失败: %v", err)))
+		}
+	}
+
+	// 5. 删除本地规则文件
 	jsonFilePath := filepath.Join(rs.ruleDir, ruleID+".json")
-	yamlFilePath := filepath.Join(rs.ruleDir, ruleID+".yaml")
-	ymlFilePath := filepath.Join(rs.ruleDir, ruleID+".yml")
 
-	jsonRemoved := false
-	yamlRemoved := false
-	ymlRemoved := false
+	fileRemoved := false
+	fileErrors := make([]string, 0)
 
+	// 尝试删除 JSON 文件
 	if _, err := os.Stat(jsonFilePath); err == nil {
 		if err := os.Remove(jsonFilePath); err == nil {
-			jsonRemoved = true
-		} else {
+			fileRemoved = true
 			logrus.WithFields(logrus.Fields{
 				"rule_id": ruleID,
 				"path":    jsonFilePath,
-				"error":   err.Error(),
-			}).Error("删除JSON规则文件失败")
-		}
-	}
-
-	if _, err := os.Stat(yamlFilePath); err == nil {
-		if err := os.Remove(yamlFilePath); err == nil {
-			yamlRemoved = true
+			}).Debug("删除 JSON 规则文件成功")
 		} else {
-			logrus.WithFields(logrus.Fields{
-				"rule_id": ruleID,
-				"path":    yamlFilePath,
-				"error":   err.Error(),
-			}).Error("删除YAML规则文件失败")
+			fileErrors = append(fileErrors, fmt.Sprintf("删除 JSON 文件失败: %v", err))
 		}
 	}
 
-	if _, err := os.Stat(ymlFilePath); err == nil {
-		if err := os.Remove(ymlFilePath); err == nil {
-			ymlRemoved = true
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"rule_id": ruleID,
-				"path":    ymlFilePath,
-				"error":   err.Error(),
-			}).Error("删除YML规则文件失败")
-		}
+	// 检查是否有任何文件被成功删除
+	if !fileRemoved {
+		logrus.WithFields(logrus.Fields{
+			"rule_id": ruleID,
+			"errors":  fileErrors,
+		}).Error("删除规则文件失败")
+		return HandleError(c, NewInternalServerError(fmt.Errorf("删除规则文件失败: %s", strings.Join(fileErrors, "; "))))
 	}
 
-	if !jsonRemoved && !yamlRemoved && !ymlRemoved {
-		return HandleError(c, NewInternalServerError(fmt.Errorf("删除规则文件失败，未找到任何匹配的文件")))
-	}
-
-	// 通知规则处理器更新规则
-	if rs.ruleProcessor != nil {
-		if err := rs.ruleProcessor.ReloadRules(); err != nil {
-			logrus.WithFields(logrus.Fields{
-				"rule_id": ruleID,
-				"error":   err.Error(),
-			}).Warn("重新加载规则引擎失败")
-		}
-	}
+	logrus.WithFields(logrus.Fields{
+		"rule_id": ruleID,
+	}).Info("规则删除成功")
 
 	return c.JSON(http.StatusOK, Response{
 		Code:    http.StatusOK,
@@ -344,7 +349,7 @@ func (rs *RuleService) DeleteRule(c echo.Context) error {
 }
 
 // validateRule 验证规则的有效性
-func validateRule(rule *ruleEngine.Rule) error {
+func validateRule(rule *ruleEngine.Rule, ruleProcessor *processor.RuleEngine) error {
 	// 验证规则ID
 	if rule.RuleID == "" {
 		return fmt.Errorf("规则ID不能为空")
@@ -376,7 +381,14 @@ func validateRule(rule *ruleEngine.Rule) error {
 			return fmt.Errorf("协议规则 %s 的表达式不能为空", tag)
 		}
 
-		// 这里可以添加更多的验证逻辑，例如验证表达式的语法等
+		// 验证表达式的语法
+		if ruleProcessor != nil {
+			if err := ruleProcessor.ValidateOSPFExpression(tag, protocolRule.Expression); err != nil {
+				return fmt.Errorf("协议规则 %s 的表达式语法错误: %v", tag, err)
+			}
+		} else {
+			logrus.Warn("规则引擎不可用，跳过表达式语法验证")
+		}
 	}
 
 	return nil
@@ -477,4 +489,9 @@ func (rs *RuleService) ValidateRule(c echo.Context) error {
 		Message: "规则验证完成",
 		Data:    responseData,
 	})
+}
+
+// NewBadRequestError 创建请求错误
+func NewBadRequestError(err error) *echo.HTTPError {
+	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 }

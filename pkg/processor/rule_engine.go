@@ -857,3 +857,63 @@ func (r *RuleEngine) ValidateOSPFExpression(packetType string, expression string
 
 	return nil
 }
+
+// DeleteRule 从规则引擎中删除规则
+func (r *RuleEngine) DeleteRule(ruleID string) error {
+	// 检查规则是否存在
+	ruleHash, exists := r.ruleExpressionHashes[ruleID]
+	if !exists {
+		return fmt.Errorf("规则 %s 不存在", ruleID)
+	}
+
+	// 遍历所有规则映射，查找并删除规则
+	for protocol, protocolRules := range r.originBlacklistRules {
+		for subType, rule := range protocolRules {
+			if ruleHash[rule.Expression] == ruleID {
+				delete(protocolRules, subType)
+				if len(protocolRules) == 0 {
+					delete(r.originBlacklistRules, protocol)
+				}
+			}
+		}
+	}
+
+	for protocol, protocolRules := range r.originWhitelistRules {
+		for subType, rule := range protocolRules {
+			if ruleHash[rule.Expression] == ruleID {
+				delete(protocolRules, subType)
+				if len(protocolRules) == 0 {
+					delete(r.originWhitelistRules, protocol)
+				}
+			}
+		}
+	}
+
+	// 删除编译后的规则
+	for protocol, compiledRules := range r.compiledBlacklistRules {
+		for subType := range compiledRules {
+			delete(compiledRules, subType)
+		}
+		if len(compiledRules) == 0 {
+			delete(r.compiledBlacklistRules, protocol)
+		}
+	}
+
+	for protocol, compiledRules := range r.compiledWhitelistRules {
+		for subType := range compiledRules {
+			delete(compiledRules, subType)
+		}
+		if len(compiledRules) == 0 {
+			delete(r.compiledWhitelistRules, protocol)
+		}
+	}
+
+	// 删除规则表达式哈希
+	delete(r.ruleExpressionHashes, ruleID)
+
+	logrus.WithFields(logrus.Fields{
+		"rule_id": ruleID,
+	}).Debug("从规则引擎中删除规则成功")
+
+	return nil
+}

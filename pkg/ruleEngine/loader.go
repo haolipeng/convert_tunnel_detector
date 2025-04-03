@@ -6,13 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
 // RuleLoader 负责加载和管理规则
 type RuleLoader struct {
 	rules map[string]*Rule // 使用map存储规则,key为规则ID,value为规则详情
+	mu    sync.RWMutex
 }
 
 // NewRuleLoader 创建一个新的规则加载器
@@ -103,6 +106,10 @@ func (rl *RuleLoader) AddRule(ruleID string, rule *Rule) error {
 
 // UpdateRule 更新规则
 func (rl *RuleLoader) UpdateRule(ruleID string, rule *Rule) error {
+	// 加锁进行更新
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
 	// 检查规则是否存在
 	if _, exists := rl.rules[ruleID]; !exists {
 		return fmt.Errorf("规则 %s 不存在", ruleID)
@@ -110,5 +117,25 @@ func (rl *RuleLoader) UpdateRule(ruleID string, rule *Rule) error {
 
 	// 更新规则
 	rl.rules[ruleID] = rule
+	return nil
+}
+
+// DeleteRule 从规则加载器中删除规则
+func (rl *RuleLoader) DeleteRule(ruleID string) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	// 检查规则是否存在
+	if _, exists := rl.rules[ruleID]; !exists {
+		return fmt.Errorf("规则 %s 不存在", ruleID)
+	}
+
+	// 删除规则
+	delete(rl.rules, ruleID)
+
+	logrus.WithFields(logrus.Fields{
+		"rule_id": ruleID,
+	}).Debug("从规则加载器中删除规则成功")
+
 	return nil
 }
