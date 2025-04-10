@@ -1,9 +1,12 @@
 package processor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"syscall"
 	"time"
@@ -71,8 +74,7 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 					continue
 				}
 
-				// 检查规则匹配结果
-				// 如果没有规则匹配结果，说明该数据包不需要特殊处理，直接转发
+				// 如果没有规则匹配结果，可能是未设置相关规则，直接数据包转发
 				if packet.RuleResult == nil {
 					select {
 					case out <- packet:
@@ -98,51 +100,12 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 						continue
 					}
 					p.metrics.IncrementProcessed()
-					p.metrics.IncrementWhitelistMatched()
 					logrus.Debugf("Successfully forwarded packet %s", packet.ID)
 
 				case types.ActionAlert:
 					// 黑名单规则匹配或白名单规则未匹配，触发告警
 					// 记录告警信息并更新黑名单匹配计数器
-					var ruleInfo *ruleEngine.ProtocolRule
-					t := packet.RuleResult.MatchType
-					if t == types.MatchTypeBlacklist {
-						ruleInfo = packet.RuleResult.BlackRule
-					} else if t == types.MatchTypeWhitelist {
-						ruleInfo = packet.RuleResult.WhiteRule
-					}
-
-					var alertType string
-					if packet.Protocol == "OSPF" || packet.Protocol == "ospf" {
-						alertType = "OSPF Tunnel Detection"
-					} else if packet.Protocol == "PIM" || packet.Protocol == "pim" {
-						alertType = "PIM Tunnel Detection"
-					} else if packet.Protocol == "IGMP" || packet.Protocol == "igmp" {
-						alertType = "IGMP Tunnel Detection"
-					}
-
-					alertInfo := map[string]interface{}{
-						"alert_time":    time.Now().Format("2006-01-02 15:04:05"),
-						"src_ip":        packet.SrcIP.String(),
-						"src_port":      packet.SrcPort,
-						"dst_ip":        packet.DstIP.String(),
-						"dst_port":      packet.DstPort,
-						"protocol":      packet.Protocol,
-						"sub_protocol":  packet.SubProtocol,
-						"detect_method": packet.RuleResult.DetectMethod,
-						"rule_id":       ruleInfo.RuleID,
-						"alert_type":    alertType,
-						"description":   ruleInfo.Description,
-						"action":        "alert",
-						"packet_id":     packet.ID,
-						"feature":       "{}", // TODO:暂时不编写
-					}
-					logrus.WithFields(logrus.Fields(alertInfo)).Warn("告警信息")
-
-					if packet.RuleResult.BlackRuleMatched {
-						p.metrics.IncrementBlacklistMatched()
-					}
-
+					generateAlert(packet)
 				default:
 					// 未知的动作类型，记录警告日志
 					logrus.Warnf("Packet %s has unknown action: %v", packet.ID, packet.RuleResult.Action)
@@ -250,4 +213,82 @@ func (p *PacketForwarder) cleanup() {
 		p.socket = 0
 	}
 	p.isReady = false
+}
+
+// AlertEndpoint 告警上报的HTTP地址
+var AlertEndpoint = "http://192.168.1.191:8080/event"
+
+func generateAlert(packet *types.Packet) {
+	var ruleInfo *ruleEngine.ProtocolRule
+	t := packet.RuleResult.MatchType
+	if t == types.MatchTypeBlacklist {
+		ruleInfo = packet.RuleResult.BlackRule
+	} else if t == types.MatchTypeWhitelist {
+		ruleInfo = packet.RuleResult.WhiteRule
+	}
+
+	var alertType string
+	if packet.Protocol == "OSPF" || packet.Protocol == "ospf" {
+		alertType = "OSPF Tunnel Detection"
+	} else if packet.Protocol == "PIM" || packet.Protocol == "pim" {
+		alertType = "PIM Tunnel Detection"
+	} else if packet.Protocol == "IGMP" || packet.Protocol == "igmp" {
+		alertType = "IGMP Tunnel Detection"
+	}
+
+	alertInfo := map[string]interface{}{
+		"alert_time":    time.Now(),
+		"src_ip":        packet.SrcIP.String(),
+		"src_port":      packet.SrcPort,
+		"dst_ip":        packet.DstIP.String(),
+		"dst_port":      packet.DstPort,
+		"protocol":      packet.Protocol,
+		"sub_protocol":  packet.SubProtocol,
+		"detect_method": packet.RuleResult.DetectMethod,
+		"rule_id":       ruleInfo.RuleID,
+		"alert_type":    alertType, // 告警类型
+		"description":   ruleInfo.Description,
+		"action":        "alert",
+		"packet_id":     packet.ID,
+		"feature":       "{}", // TODO:暂时不编写
+	}
+
+	// 记录本地日志
+	logrus.WithFields(logrus.Fields(alertInfo)).Warn("告警信息")
+
+	// 将告警信息转换为JSON
+	jsonData, err := json.Marshal(alertInfo)
+	if err != nil {
+		logrus.Errorf("Failed to marshal alert info: %v", err)
+		return
+	}
+
+	// 创建HTTP请求
+	req, err := http.NewRequest("POST", AlertEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		logrus.Errorf("Failed to create HTTP request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// 创建HTTP客户端
+	client := &http.Client{
+		Timeout: time.Second * 5, // 设置5秒超时
+	}
+
+	// 发送HTTP请求
+	resp, err := client.Do(req)
+	if err != nil {
+		logrus.Errorf("Failed to send alert: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 检查响应状态
+	if resp.StatusCode != http.StatusOK {
+		logrus.Errorf("Alert server returned non-200 status code: %d", resp.StatusCode)
+		return
+	}
+
+	logrus.Debugf("Alert successfully sent to %s", AlertEndpoint)
 }

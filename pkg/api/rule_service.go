@@ -477,12 +477,6 @@ func (rs *RuleService) ValidateRule(c echo.Context) error {
 				} else {
 					packetInfo["valid"] = true
 				}
-			} else {
-				// 如果没有规则处理器，标记为警告而不是失败
-				packetInfo["valid"] = false
-				packetInfo["error"] = "规则引擎不可用，无法验证表达式"
-				packetInfo["warning"] = true
-				logrus.Warn("规则引擎不可用，跳过表达式验证")
 			}
 
 			details[packetType] = packetInfo
@@ -502,11 +496,20 @@ func (rs *RuleService) ValidateRule(c echo.Context) error {
 		responseData["details"] = details
 	}
 
-	return c.JSON(http.StatusOK, Response{
-		Code:    http.StatusOK,
-		Message: "规则验证完成",
-		Data:    responseData,
-	})
+	// 根据验证结果返回不同的状态码
+	if isValid {
+		return c.JSON(http.StatusOK, Response{
+			Code:    http.StatusOK,
+			Message: "规则验证成功",
+			Data:    responseData,
+		})
+	} else {
+		return c.JSON(http.StatusBadRequest, Response{
+			Code:    http.StatusBadRequest,
+			Message: "规则验证失败",
+			Data:    responseData,
+		})
+	}
 }
 
 // NewBadRequestError 创建请求错误

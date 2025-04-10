@@ -6,6 +6,8 @@
     "rule_name": "ospf_whitelist_rules",
     "rule_type": "or",
     "rule_mode": "whitelist",
+    "update_time": "2025-04-10T12:00:00Z",
+    "rule_source": "internal",
     "protocol_rules": {
       "HELLO": {
         "expression": "ospf.hello.hello_interval == 10",

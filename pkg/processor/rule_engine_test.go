@@ -280,14 +280,17 @@ func TestRuleEngineProcess(t *testing.T) {
 	assert.NotNil(t, results[0].RuleResult, "第一个数据包应该匹配规则")
 	assert.True(t, results[0].RuleResult.WhiteRuleMatched, "第一个数据包应该匹配白名单规则")
 	assert.Equal(t, "测试Hello包间隔", results[0].RuleResult.WhiteRule.Description, "应该匹配正确的规则描述")
+	assert.Equal(t, types.MatchTypeWhitelist, results[0].RuleResult.MatchType, "第一个数据包的匹配类型应该是白名单")
 
 	// 验证第二个包（不符合白名单规则）
 	assert.NotNil(t, results[1].RuleResult) // 不匹配，所以没有结果
+	assert.Equal(t, types.MatchTypeNone, results[1].RuleResult.MatchType, "第二个数据包的匹配类型应该是无匹配")
 
 	// 验证第三个包（符合黑名单规则）
 	assert.NotNil(t, results[2].RuleResult, "第三个数据包应该匹配规则")
 	assert.True(t, results[2].RuleResult.BlackRuleMatched, "第三个数据包应该匹配黑名单规则")
 	assert.Equal(t, "测试异常Hello包间隔", results[2].RuleResult.BlackRule.Description, "应该匹配正确的规则描述")
+	assert.Equal(t, types.MatchTypeBlacklist, results[2].RuleResult.MatchType, "第三个数据包的匹配类型应该是黑名单")
 }
 
 // 测试规则状态功能
