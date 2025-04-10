@@ -9,6 +9,8 @@ type Rule struct {
 	RuleName      string                   `yaml:"rule_name" json:"rule_name"`           // 规则名称
 	RuleType      string                   `yaml:"rule_type" json:"rule_type"`           // 规则类型 (or/and)
 	RuleMode      string                   `yaml:"rule_mode" json:"rule_mode"`           // 规则模式 (whitelist/blacklist)
+	UpdateTime    string                   `yaml:"update_time" json:"update_time"`       // 规则更新时间
+	RuleSource    string                   `yaml:"rule_source" json:"rule_source"`       // 规则来源
 	ProtocolRules map[string]*ProtocolRule `yaml:"protocol_rules" json:"protocol_rules"` // 协议规则
 }
 

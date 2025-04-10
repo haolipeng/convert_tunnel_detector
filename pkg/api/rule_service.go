@@ -370,6 +370,16 @@ func validateRule(rule *ruleEngine.Rule, ruleProcessor *processor.RuleEngine) er
 		return fmt.Errorf("规则状态必须是 enable 或 disable")
 	}
 
+	// 验证规则来源
+	if rule.RuleSource == "" {
+		return fmt.Errorf("规则来源不能为空")
+	}
+
+	// 验证更新时间
+	if rule.UpdateTime == "" {
+		return fmt.Errorf("更新时间不能为空")
+	}
+
 	// 验证协议规则
 	if len(rule.ProtocolRules) == 0 {
 		return fmt.Errorf("协议规则不能为空")
@@ -396,7 +406,7 @@ func validateRule(rule *ruleEngine.Rule, ruleProcessor *processor.RuleEngine) er
 
 // ValidateRule 验证规则有效性（不保存到文件系统，不加载到规则引擎）
 func (rs *RuleService) ValidateRule(c echo.Context) error {
-	// 解析请求体
+	// 解析请求体，以json格式传输规则即可
 	var rule ruleEngine.Rule
 	if err := c.Bind(&rule); err != nil {
 		return HandleError(c, NewInvalidRuleFormatError(err))
@@ -422,6 +432,14 @@ func (rs *RuleService) ValidateRule(c echo.Context) error {
 
 	if rule.State != "enable" && rule.State != "disable" && rule.State != "" {
 		errors["state"] = "规则状态必须是 enable 或 disable"
+	}
+
+	if rule.RuleSource == "" {
+		errors["rule_source"] = "规则来源不能为空"
+	}
+
+	if rule.UpdateTime == "" {
+		errors["update_time"] = "更新时间不能为空"
 	}
 
 	// 验证各OSPF包类型的表达式
