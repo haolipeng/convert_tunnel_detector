@@ -291,7 +291,7 @@ func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 				// 检查规则状态，只有启用状态的规则才会被匹配
 				if originalRule.State != "enable" || originalRule.State == "disable" {
 					// 规则未启用，跳过匹配
-					return false, nil
+					return false, fmt.Errorf("whitelist rule %s is not enabled", originalRule.RuleID)
 				}
 
 				// 构建评估变量
