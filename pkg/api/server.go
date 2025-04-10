@@ -51,5 +51,5 @@ func (s *Server) RegisterRuleService(rs *RuleService) {
 	s.echo.POST("/ruleEngine/configs/:rule_id", rs.CreateRule)   // 创建规则
 	s.echo.PATCH("/ruleEngine/configs/:rule_id", rs.UpdateRule)  // 更新规则
 	s.echo.DELETE("/ruleEngine/configs/:rule_id", rs.DeleteRule) // 删除规则
-	s.echo.POST("/ruleEngine/validate", rs.ValidateRule)         // 验证规则有效性
+	s.echo.POST("/ruleEngine/configs/validate", rs.ValidateRule) // 验证规则有效性
 }

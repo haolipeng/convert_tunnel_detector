@@ -236,6 +236,11 @@ func (r *RuleEngine) Process(ctx context.Context, in <-chan *types.Packet, wg *s
 			}
 
 			// 第三步：根据规则匹配结果决定数据包处理动作
+			// 规则匹配结果决定了数据包的处理方式：
+			// 1. 黑名单匹配 -> 触发告警
+			// 2. 白名单匹配 -> 转发
+			// 3. 白名单未匹配 -> 触发告警
+			// 4. 无规则匹配 -> 默认转发
 			if packet.RuleResult != nil {
 				if packet.RuleResult.BlackRuleMatched {
 					// 黑名单匹配成功：发现可疑流量，触发告警

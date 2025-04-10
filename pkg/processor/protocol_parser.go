@@ -117,6 +117,10 @@ func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, e
 	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
 		ip, _ := ipLayer.(*layers.IPv4)
 
+		// 填充 IP 地址
+		packetData.SrcIP = ip.SrcIP
+		packetData.DstIP = ip.DstIP
+
 		switch ip.Protocol {
 		case layers.IPProtocolOSPF: // OSPF协议 (89)
 			logrus.Info("detect protocol OSPF!")
@@ -138,6 +142,7 @@ func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, e
 				packetData.ParserResult = ospfPkt
 				packetData.Protocol = "ospf"
 				packetData.SubType = uint8(ospfV2.Type)
+				packetData.SubProtocol = packetData.SubType
 			} else if ospfV3, ok := ospfLayer.(*layers.OSPFv3); ok {
 				ospfParser := NewOSPFParser()
 				ospfPkt, err := ospfParser.parsePacketV3(ip, ospfV3) //解析v3版本的ospf协议字段
@@ -148,6 +153,7 @@ func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, e
 				packetData.ParserResult = ospfPkt
 				packetData.Protocol = "ospf"
 				packetData.SubType = uint8(ospfV3.Type)
+				packetData.SubProtocol = packetData.SubType
 			}
 
 		case layers.IPProtocolIGMP:
@@ -159,9 +165,21 @@ func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, e
 		case layers.IPProtocolTCP:
 			logrus.Info("detect protocol TCP!")
 			packetData.Protocol = "tcp"
+			if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
+				tcp, _ := tcpLayer.(*layers.TCP)
+				// 填充端口信息
+				packetData.SrcPort = int(tcp.SrcPort)
+				packetData.DstPort = int(tcp.DstPort)
+			}
 		case layers.IPProtocolUDP:
 			logrus.Info("detect protocol UDP!")
 			packetData.Protocol = "udp"
+			if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+				udp, _ := udpLayer.(*layers.UDP)
+				// 填充端口信息
+				packetData.SrcPort = int(udp.SrcPort)
+				packetData.DstPort = int(udp.DstPort)
+			}
 		}
 	} else if ipLayerV6 := packet.Layer(layers.LayerTypeIPv6); ipLayerV6 != nil {
 		//TODO:ipv6 not finished

@@ -23,6 +23,13 @@ type Packet struct {
 	DstMAC       net.HardwareAddr // 目标MAC地址
 	EthernetType uint16           // 以太网类型
 	Interface    *net.Interface   // 网络接口信息
+
+	// 新增字段
+	SrcIP       net.IP
+	SrcPort     int
+	DstIP       net.IP
+	DstPort     int
+	SubProtocol uint8
 }
 
 // PacketType 表示数据包类型
