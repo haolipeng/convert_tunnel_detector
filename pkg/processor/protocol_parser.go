@@ -141,8 +141,7 @@ func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, e
 				// 设置解析结果和协议类型
 				packetData.ParserResult = ospfPkt
 				packetData.Protocol = "ospf"
-				packetData.SubType = uint8(ospfV2.Type)
-				packetData.SubProtocol = packetData.SubType
+				packetData.SubProtocol = uint8(ospfV2.Type)
 			} else if ospfV3, ok := ospfLayer.(*layers.OSPFv3); ok {
 				ospfParser := NewOSPFParser()
 				ospfPkt, err := ospfParser.parsePacketV3(ip, ospfV3) //解析v3版本的ospf协议字段
@@ -152,8 +151,7 @@ func (p *ProtocolParser) ParsePacket(packetData *types.Packet) (*types.Packet, e
 				// 设置解析结果和协议类型
 				packetData.ParserResult = ospfPkt
 				packetData.Protocol = "ospf"
-				packetData.SubType = uint8(ospfV3.Type)
-				packetData.SubProtocol = packetData.SubType
+				packetData.SubProtocol = uint8(ospfV3.Type)
 			}
 
 		case layers.IPProtocolIGMP:

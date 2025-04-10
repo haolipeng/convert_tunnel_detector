@@ -18,7 +18,7 @@ func NewOSPFParser() *OSPFParser {
 
 // parsePacketV3 解析OSPFv3包
 func (p *OSPFParser) parsePacketV3(ip *layers.IPv4, ospf *layers.OSPFv3) (*OSPFPacket, error) {
-	//TODO:need implement me
+	//TODO:need implement me 先暂时不做这块
 	var err error
 	return nil, err
 }

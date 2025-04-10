@@ -16,7 +16,7 @@ type Packet struct {
 
 	RuleResult *RuleMatchResult // 规则匹配结果
 
-	SubType uint8 // OSPF报文类型：1=Hello, 2=DD, 3=LSR, 4=LSU, 5=LSAck
+	SubProtocol uint8 // OSPF报文类型：1=Hello, 2=DD, 3=LSR, 4=LSU, 5=LSAck
 
 	// 数据包转发相关字段
 	SrcMAC       net.HardwareAddr // 源MAC地址
@@ -25,11 +25,10 @@ type Packet struct {
 	Interface    *net.Interface   // 网络接口信息
 
 	// 新增字段
-	SrcIP       net.IP
-	SrcPort     int
-	DstIP       net.IP
-	DstPort     int
-	SubProtocol uint8
+	SrcIP   net.IP
+	SrcPort int
+	DstIP   net.IP
+	DstPort int
 }
 
 // PacketType 表示数据包类型

@@ -119,7 +119,7 @@ func TestEvalVarsBuilding(t *testing.T) {
 	// 创建一个包含OSPF数据包的Packet
 	packet := &types.Packet{
 		Protocol:     "ospf",
-		SubType:      OSPFTypeHello,
+		SubProtocol:  OSPFTypeHello,
 		ParserResult: ospfPacket,
 	}
 
@@ -194,8 +194,8 @@ func TestRuleEngineProcess(t *testing.T) {
 	packets := []*types.Packet{
 		{
 			// 符合白名单规则的包
-			Protocol: "ospf",
-			SubType:  OSPFTypeHello,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeHello,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
@@ -209,8 +209,8 @@ func TestRuleEngineProcess(t *testing.T) {
 		},
 		{
 			// 不符合白名单规则的包
-			Protocol: "ospf",
-			SubType:  OSPFTypeHello,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeHello,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
@@ -224,8 +224,8 @@ func TestRuleEngineProcess(t *testing.T) {
 		},
 		{
 			// 符合黑名单规则的包
-			Protocol: "ospf",
-			SubType:  OSPFTypeHello,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeHello,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
@@ -239,8 +239,8 @@ func TestRuleEngineProcess(t *testing.T) {
 		},
 		{
 			// DD包，但规则被禁用
-			Protocol: "ospf",
-			SubType:  OSPFTypeDD,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeDD,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 32,
@@ -330,8 +330,8 @@ func TestRuleState(t *testing.T) {
 	packets := []*types.Packet{
 		// 符合启用的Hello规则
 		{
-			Protocol: "ospf",
-			SubType:  OSPFTypeHello,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeHello,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 48,
@@ -345,8 +345,8 @@ func TestRuleState(t *testing.T) {
 		},
 		// 符合禁用的DD规则,被禁用的规则，是不会有匹配结果的
 		{
-			Protocol: "ospf",
-			SubType:  OSPFTypeDD,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeDD,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 32,
@@ -359,8 +359,8 @@ func TestRuleState(t *testing.T) {
 		},
 		// 符合启用的LSR规则
 		{
-			Protocol: "ospf",
-			SubType:  OSPFTypeLSR,
+			Protocol:    "ospf",
+			SubProtocol: OSPFTypeLSR,
 			ParserResult: &OSPFPacket{
 				Version:      2,
 				PacketLength: 36,
@@ -554,7 +554,7 @@ func createTestPacket(packetType uint8, value uint16) *types.Packet {
 
 	return &types.Packet{
 		Protocol:     "ospf",
-		SubType:      packetType,
+		SubProtocol:  packetType,
 		ParserResult: ospfPacket,
 	}
 }

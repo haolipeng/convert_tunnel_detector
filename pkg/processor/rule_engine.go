@@ -84,6 +84,7 @@ func processRules(env *cel.Env, rule *ruleEngine.Rule, ruleID string) (map[strin
 
 		// 添加规则，并保存到规则map中
 		ruleMap[rule.RuleProtocol][subType] = &ruleEngine.ProtocolRule{
+			RuleID:      ruleID,
 			State:       ruleInfo.State,
 			Expression:  ruleInfo.Expression,
 			Description: ruleInfo.Description,
@@ -163,6 +164,8 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 				blackRuleMap, compiledBlackRules, err = processRules(env, rule, ruleID)
 			case "whitelist":
 				whiteRuleMap, compiledWhiteRules, err = processRules(env, rule, ruleID)
+			default:
+				return nil, fmt.Errorf("invalid rule mode: %s", rule.RuleMode)
 			}
 			if err != nil {
 				return nil, err
@@ -170,7 +173,7 @@ func NewRuleEngine(rules map[string]*ruleEngine.Rule) (*RuleEngine, error) {
 		}
 	}
 
-	//初始化规则引擎时，如果规则为空，则创建空的规则映射表
+	//在初始化规则引擎时，如果规则为空，则创建空的规则映射表
 	if len(rules) == 0 {
 		whiteRuleMap = make(map[string]map[int]*ruleEngine.ProtocolRule)
 		blackRuleMap = make(map[string]map[int]*ruleEngine.ProtocolRule)
@@ -278,11 +281,11 @@ func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 	if protocolRules, exists := r.originWhitelistRules[packet.Protocol]; exists {
 		// 如果编译后的规则列表不存在，则创建新的编译后规则列表
 		if programs, ok := r.compiledWhitelistRules[packet.Protocol]; ok {
-			if program, ok := programs[int(packet.SubType)]; ok {
+			if program, ok := programs[int(packet.SubProtocol)]; ok {
 				// 获取原始规则信息，并进行有效性检查
-				originalRule, exists := protocolRules[int(packet.SubType)]
+				originalRule, exists := protocolRules[int(packet.SubProtocol)]
 				if !exists || originalRule == nil {
-					return false, fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+					return false, fmt.Errorf("whitelist rule not found for protocol %s, type %d", packet.Protocol, packet.SubProtocol)
 				}
 
 				// 检查规则状态，只有启用状态的规则才会被匹配
@@ -304,6 +307,8 @@ func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 				packet.RuleResult = &types.RuleMatchResult{
 					WhiteRuleMatched: result,
 					WhiteRule:        originalRule,
+					MatchType:        types.MatchTypeWhitelist,
+					DetectMethod:     "rule_engine",
 				}
 
 				return true, nil
@@ -324,17 +329,17 @@ func (r *RuleEngine) processWhitelistRule(packet *types.Packet) (bool, error) {
 func (r *RuleEngine) processBlacklistRule(packet *types.Packet) (bool, error) {
 	if protocolRules, exists := r.originBlacklistRules[packet.Protocol]; exists {
 		if programs, ok := r.compiledBlacklistRules[packet.Protocol]; ok {
-			if program, ok := programs[int(packet.SubType)]; ok {
+			if program, ok := programs[int(packet.SubProtocol)]; ok {
 				// 获取原始规则信息，并进行有效性检查
-				originalRule, exists := protocolRules[int(packet.SubType)]
+				originalRule, exists := protocolRules[int(packet.SubProtocol)]
 				if !exists || originalRule == nil {
-					return false, fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubType)
+					return false, fmt.Errorf("blacklist rule not found for protocol %s, type %d", packet.Protocol, packet.SubProtocol)
 				}
 
 				// 检查规则状态，只有启用状态的规则才会被匹配
 				if originalRule.State != "enable" {
 					// 规则未启用，跳过匹配
-					return false, nil
+					return false, fmt.Errorf("blacklist rule %s is not enabled", originalRule.RuleID)
 				}
 
 				// 构建评估变量
@@ -352,6 +357,8 @@ func (r *RuleEngine) processBlacklistRule(packet *types.Packet) (bool, error) {
 				}
 				packet.RuleResult.BlackRuleMatched = result
 				packet.RuleResult.BlackRule = originalRule
+				packet.RuleResult.MatchType = types.MatchTypeBlacklist
+				packet.RuleResult.DetectMethod = "rule_engine"
 
 				return true, nil
 			}
@@ -376,7 +383,7 @@ func buildEvalVars(packet *types.Packet) map[string]interface{} {
 	vars := map[string]interface{}{
 		// OSPF通用头部字段
 		"ospf.version":       int8(ospfPacket.Version),
-		"ospf.msg":           int8(packet.SubType),
+		"ospf.msg":           int8(packet.SubProtocol),
 		"ospf.packet_length": uint16(ospfPacket.PacketLength),
 		"ospf.srcrouter":     ospfPacket.RouterID.String(),
 		"ospf.area_id":       ospfPacket.AreaID.String(),
@@ -386,7 +393,7 @@ func buildEvalVars(packet *types.Packet) map[string]interface{} {
 	}
 
 	// 根据包类型添加特定字段
-	switch packet.SubType {
+	switch packet.SubProtocol {
 	case OSPFTypeHello:
 		// 添加Hello包特有字段
 		if ospfPacket.HelloFields != nil {

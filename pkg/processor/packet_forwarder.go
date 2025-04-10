@@ -10,6 +10,7 @@ import (
 
 	"github.com/haolipeng/convert_tunnel_detector/pkg/config"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/metrics"
+	"github.com/haolipeng/convert_tunnel_detector/pkg/ruleEngine"
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
 	"github.com/haolipeng/gopacket"
 	"github.com/haolipeng/gopacket/layers"
@@ -103,6 +104,23 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 				case types.ActionAlert:
 					// 黑名单规则匹配或白名单规则未匹配，触发告警
 					// 记录告警信息并更新黑名单匹配计数器
+					var ruleInfo *ruleEngine.ProtocolRule
+					t := packet.RuleResult.MatchType
+					if t == types.MatchTypeBlacklist {
+						ruleInfo = packet.RuleResult.BlackRule
+					} else if t == types.MatchTypeWhitelist {
+						ruleInfo = packet.RuleResult.WhiteRule
+					}
+
+					var alertType string
+					if packet.Protocol == "OSPF" || packet.Protocol == "ospf" {
+						alertType = "OSPF Tunnel Detection"
+					} else if packet.Protocol == "PIM" || packet.Protocol == "pim" {
+						alertType = "PIM Tunnel Detection"
+					} else if packet.Protocol == "IGMP" || packet.Protocol == "igmp" {
+						alertType = "IGMP Tunnel Detection"
+					}
+
 					alertInfo := map[string]interface{}{
 						"alert_time":    time.Now().Format("2006-01-02 15:04:05"),
 						"src_ip":        packet.SrcIP.String(),
@@ -111,13 +129,13 @@ func (p *PacketForwarder) Process(ctx context.Context, in <-chan *types.Packet, 
 						"dst_port":      packet.DstPort,
 						"protocol":      packet.Protocol,
 						"sub_protocol":  packet.SubProtocol,
-						"detect_method": "rule_engine",
-						"rule_id":       packet.RuleResult.BlackRule.RuleID,
-						"type":          "alert_type", // 需要根据具体情况设置
-						"description":   "告警描述",       // 需要根据具体情况设置
+						"detect_method": packet.RuleResult.DetectMethod,
+						"rule_id":       ruleInfo.RuleID,
+						"alert_type":    alertType,
+						"description":   ruleInfo.Description,
 						"action":        "alert",
 						"packet_id":     packet.ID,
-						"feature":       "{}", // 暂时不编写
+						"feature":       "{}", // TODO:暂时不编写
 					}
 					logrus.WithFields(logrus.Fields(alertInfo)).Warn("告警信息")
 
