@@ -19,19 +19,20 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// AlertEndpoint 告警上报的HTTP地址
-var AlertEndpoint = "http://192.168.1.191:8080/event"
-
 type PcapSink struct {
-	baseFilename string // 基础文件名（如 "qt"）
-	maxFileSize  int64  // 文件大小限制（50MB）
-	currentSize  int64  // 当前文件大小
-	fileIndex    int    // 当前文件索引
-	pcapWriter   *pcapgo.Writer
-	curFileName  string // 当前文件名
-	file         *os.File
-	mu           sync.Mutex
-	ready        chan struct{}
+	baseFilename      string
+	maxFileSize       int64
+	fileIndex         int
+	file              *os.File
+	pcapWriter        *pcapgo.Writer
+	mu                sync.Mutex
+	ready             chan struct{}
+	alertEndpoint     string
+	baseDirectory     string
+	allowAbsolutePath bool
+	httpClient        *http.Client
+	curFileName       string
+	currentSize       int64
 }
 
 func NewPcapSink(config *config.Config) (*PcapSink, error) {
@@ -41,11 +42,32 @@ func NewPcapSink(config *config.Config) (*PcapSink, error) {
 		maxFileSize = config.Output.MaxFileSize
 	}
 
+	// 设置默认告警端点
+	alertEndpoint := config.Output.AlertEndpoint
+	if alertEndpoint == "" {
+		alertEndpoint = "http://127.0.0.1:8080/event"
+		logrus.Info("Using default alert endpoint: http://127.0.0.1:8080/event")
+	}
+
+	// 创建 HTTP 客户端
+	httpClient := &http.Client{
+		Timeout: config.Security.HTTPTimeout,
+		Transport: &http.Transport{
+			MaxIdleConns:        config.Security.MaxIdleConns,
+			MaxIdleConnsPerHost: config.Security.MaxIdleConnsPerHost,
+			IdleConnTimeout:     config.Security.IdleConnTimeout,
+		},
+	}
+
 	sink := &PcapSink{
-		baseFilename: config.Output.BaseFilename,
-		maxFileSize:  maxFileSize,
-		fileIndex:    1,
-		ready:        make(chan struct{}),
+		baseFilename:      config.Output.BaseFilename,
+		maxFileSize:       maxFileSize,
+		fileIndex:         1,
+		ready:             make(chan struct{}),
+		alertEndpoint:     alertEndpoint,
+		baseDirectory:     config.Output.BaseDirectory,
+		allowAbsolutePath: config.Output.AllowAbsolutePath,
+		httpClient:        httpClient,
 	}
 
 	// 创建第一个文件
@@ -121,7 +143,7 @@ func (s *PcapSink) writePacketToPcap(packet *types.Packet) error {
 
 	// 如果数据包是告警包，则调用告警函数
 	if packet.RuleResult.Action == types.ActionAlert {
-		generateAlert(packet, s.curFileName)
+		generateAlert(packet, s.curFileName, s.alertEndpoint)
 	}
 	return nil
 }
@@ -163,7 +185,7 @@ func (s *PcapSink) Ready() <-chan struct{} {
 	return s.ready
 }
 
-func generateAlert(packet *types.Packet, curFileName string) {
+func generateAlert(packet *types.Packet, curFileName string, AlertEndpoint string) {
 	var ruleInfo *ruleEngine.ProtocolRule
 	t := packet.RuleResult.MatchType
 	if t == types.MatchTypeBlacklist {

@@ -45,9 +45,12 @@ type PermissionsConfig struct {
 }
 
 type Output struct {
-	Type         string `yaml:"type"`
-	BaseFilename string `yaml:"base_filename"`
-	MaxFileSize  int64  `yaml:"max_file_size"`
+	Type              string `yaml:"type"`
+	BaseFilename      string `yaml:"base_filename"`
+	MaxFileSize       int64  `yaml:"max_file_size"`
+	AlertEndpoint     string `yaml:"alert_endpoint"`
+	BaseDirectory     string `yaml:"base_directory"`
+	AllowAbsolutePath bool   `yaml:"allow_absolute_path"`
 }
 
 type Log struct {
@@ -64,6 +67,13 @@ type Pipeline struct {
 	BufferSize  int `yaml:"buffer_size"`
 }
 
+type SecurityConfig struct {
+	HTTPTimeout         time.Duration `yaml:"http_timeout"`
+	MaxIdleConns        int           `yaml:"max_idle_conns"`
+	MaxIdleConnsPerHost int           `yaml:"max_idle_conns_per_host"`
+	IdleConnTimeout     time.Duration `yaml:"idle_conn_timeout"`
+}
+
 type Config struct {
 	Pipeline    Pipeline          `yaml:"pipeline"`
 	Log         Log               `yaml:"log"`
@@ -73,6 +83,7 @@ type Config struct {
 	RuleEngine  RuleEngineConfig  `yaml:"rule_engine"`
 	Timeouts    TimeoutsConfig    `yaml:"timeouts"`
 	Permissions PermissionsConfig `yaml:"permissions"`
+	Security    SecurityConfig    `yaml:"security"`
 }
 
 const (
@@ -160,6 +171,25 @@ func (c *Config) Validate() error {
 
 	if c.Log.TimeFormat == "" {
 		c.Log.TimeFormat = "2006-01-02 15:04:05"
+	}
+
+	// 验证安全配置
+	if c.Security.HTTPTimeout <= 0 {
+		c.Security.HTTPTimeout = 5 * time.Second
+	}
+	if c.Security.MaxIdleConns <= 0 {
+		c.Security.MaxIdleConns = 100
+	}
+	if c.Security.MaxIdleConnsPerHost <= 0 {
+		c.Security.MaxIdleConnsPerHost = 100
+	}
+	if c.Security.IdleConnTimeout <= 0 {
+		c.Security.IdleConnTimeout = 90 * time.Second
+	}
+
+	// 验证输出配置
+	if c.Output.BaseDirectory == "" {
+		c.Output.BaseDirectory = "." // 默认使用当前目录
 	}
 
 	return nil
