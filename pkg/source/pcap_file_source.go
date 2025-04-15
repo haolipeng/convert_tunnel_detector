@@ -82,10 +82,11 @@ func (s *PcapFileSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 				}
 
 				p := &types.Packet{
-					ID:        fmt.Sprintf("pkt-%d", packetCount),
-					Timestamp: time.Now().UnixNano(),
-					RawData:   packet.Data(),
-					Protocol:  "Unknown",
+					ID:          fmt.Sprintf("pkt-%d", packetCount),
+					Timestamp:   time.Now().UnixNano(),
+					RawData:     packet.Data(),
+					CaptureInfo: packet.Metadata().CaptureInfo,
+					Protocol:    "Unknown",
 				}
 
 				select {

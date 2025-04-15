@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,23 +44,30 @@ type PermissionsConfig struct {
 	FileMode      int `yaml:"file_mode"`
 }
 
+type Output struct {
+	Type         string `yaml:"type"`
+	BaseFilename string `yaml:"base_filename"`
+	MaxFileSize  int64  `yaml:"max_file_size"`
+}
+
+type Log struct {
+	Level      string `yaml:"level"`
+	Dir        string `yaml:"dir"`
+	Filename   string `yaml:"filename"`
+	MaxAge     int    `yaml:"max_age"`
+	RotateTime int    `yaml:"rotate_time"`
+	TimeFormat string `yaml:"time_format"`
+}
+
+type Pipeline struct {
+	WorkerCount int `yaml:"worker_count"`
+	BufferSize  int `yaml:"buffer_size"`
+}
+
 type Config struct {
-	Pipeline struct {
-		WorkerCount int `yaml:"worker_count"`
-		BufferSize  int `yaml:"buffer_size"`
-	} `yaml:"pipeline"`
-	Log struct {
-		Level      string `yaml:"level"`
-		Dir        string `yaml:"dir"`
-		Filename   string `yaml:"filename"`
-		MaxAge     int    `yaml:"max_age"`
-		RotateTime int    `yaml:"rotate_time"`
-		TimeFormat string `yaml:"time_format"`
-	} `yaml:"log"`
-	Output struct {
-		Type     string `yaml:"type"`
-		Filename string `yaml:"filename"`
-	} `yaml:"output"`
+	Pipeline    Pipeline          `yaml:"pipeline"`
+	Log         Log               `yaml:"log"`
+	Output      Output            `yaml:"output"`
 	Source      SourceConfig      `yaml:"source"`
 	API         APIConfig         `yaml:"api"`
 	RuleEngine  RuleEngineConfig  `yaml:"rule_engine"`
@@ -67,7 +75,41 @@ type Config struct {
 	Permissions PermissionsConfig `yaml:"permissions"`
 }
 
+const (
+	// 文件大小限制（字节）
+	MinFileSize     = 1024 * 1024       // 1MB
+	MaxFileSize     = 200 * 1024 * 1024 // 200MB
+	DefaultFileSize = 50 * 1024 * 1024  // 50MB
+)
+
 func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	// 验证输出配置
+	if c.Output.Type == "" {
+		return fmt.Errorf("output type is required")
+	}
+
+	if c.Output.BaseFilename == "" {
+		return fmt.Errorf("output base_filename is required")
+	}
+
+	if c.Output.MaxFileSize > 0 {
+		if c.Output.MaxFileSize < MinFileSize {
+			return fmt.Errorf("max_file_size must be at least %d bytes (1MB)", MinFileSize)
+		}
+		if c.Output.MaxFileSize > MaxFileSize {
+			return fmt.Errorf("max_file_size cannot exceed %d bytes (1GB)", MaxFileSize)
+		}
+	} else {
+		// 如果没有设置，使用默认值
+		c.Output.MaxFileSize = DefaultFileSize
+		logrus.Warnf("max_file_size not set, using default value: %d bytes", DefaultFileSize)
+	}
+
+	// 验证源配置
 	if c.Source.Type == "live" && c.Source.Interface.Name == "" {
 		return fmt.Errorf("interface name is required for live capture")
 	}
@@ -81,15 +123,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("buffer size must be positive")
 	}
 
-	// 设置默认值
+	// 验证API配置
 	if c.API.Port == "" {
-		c.API.Port = "8080"
+		return fmt.Errorf("api port is required")
 	}
 
+	// 验证规则引擎配置
 	if c.RuleEngine.RuleDirectory == "" {
-		c.RuleEngine.RuleDirectory = "rules/"
+		return fmt.Errorf("rule_engine rule_dir is required")
 	}
 
+	// 验证超时配置
 	if c.Timeouts.ProcessorReadySeconds <= 0 {
 		c.Timeouts.ProcessorReadySeconds = 10
 	}

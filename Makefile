@@ -20,12 +20,12 @@ all: build
 # 编译
 build:
 	@echo "Building ${BINARY_NAME}..."
-	@${GO} build ${LDFLAGS} -o bin/${BINARY_NAME} cmd/main.go
+	@${GO} build ${LDFLAGS} -o ${BINARY_NAME} cmd/main.go
 
 # 编译优化版本
 build-release:
 	@echo "Building release version..."
-	@${GO} build -ldflags '-s -w' ${LDFLAGS} -o bin/${BINARY_NAME} cmd/main.go
+	@${GO} build -ldflags '-s -w' ${LDFLAGS} -o ${BINARY_NAME} cmd/main.go
 
 # 运行测试
 test:
@@ -35,7 +35,7 @@ test:
 # 清理编译文件
 clean:
 	@echo "Cleaning..."
-	@rm -rf bin/
+	@rm -rf ${BINARY_NAME}
 	@${GO} clean
 
 # 安装依赖

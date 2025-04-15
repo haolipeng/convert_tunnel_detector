@@ -178,7 +178,7 @@ func main() {
 	}
 
 	// 设置输出
-	fileSink, err := sink.NewFileSink(cfg.Output.Filename)
+	fileSink, err := sink.NewPcapSink(cfg)
 	if err != nil {
 		logrus.Fatalf("Failed to create file sink: %v", err)
 	}

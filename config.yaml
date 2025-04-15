@@ -12,7 +12,8 @@ log:
 
 output:
   type: "file"
-  filename: "output.json"
+  base_filename: "ctds"
+  max_file_size: 52428800  # 50MB，单位为字节
 
 source:
   type: "live"  # "file" 或 "live"

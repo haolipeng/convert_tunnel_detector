@@ -95,10 +95,11 @@ func (s *PcapLiveSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 				}
 
 				p := &types.Packet{
-					ID:        fmt.Sprintf("pkt-%d", packetCount),
-					Timestamp: time.Now().UnixNano(),
-					RawData:   packet.Data(),
-					Protocol:  "Unknown", // 需要进一步解析
+					ID:          fmt.Sprintf("pkt-%d", packetCount),
+					Timestamp:   time.Now().UnixNano(),
+					RawData:     packet.Data(),
+					CaptureInfo: packet.Metadata().CaptureInfo,
+					Protocol:    "Unknown", // 需要进一步解析, 暂时设置为Unknown
 				}
 
 				select {
