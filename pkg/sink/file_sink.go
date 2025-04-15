@@ -51,11 +51,11 @@ func NewPcapSink(config *config.Config) (*PcapSink, error) {
 
 	// 创建 HTTP 客户端
 	httpClient := &http.Client{
-		Timeout: config.Security.HTTPTimeout,
+		Timeout: config.Security.HTTPTimeout, // 请求超时时间
 		Transport: &http.Transport{
-			MaxIdleConns:        config.Security.MaxIdleConns,
-			MaxIdleConnsPerHost: config.Security.MaxIdleConnsPerHost,
-			IdleConnTimeout:     config.Security.IdleConnTimeout,
+			MaxIdleConns:        config.Security.MaxIdleConns,        // 最大空闲连接数
+			MaxIdleConnsPerHost: config.Security.MaxIdleConnsPerHost, // 每个主机的最大空闲连接数
+			IdleConnTimeout:     config.Security.IdleConnTimeout,     // 空闲连接超时时间
 		},
 	}
 
@@ -143,7 +143,7 @@ func (s *PcapSink) writePacketToPcap(packet *types.Packet) error {
 
 	// 如果数据包是告警包，则调用告警函数
 	if packet.RuleResult.Action == types.ActionAlert {
-		generateAlert(packet, s.curFileName, s.alertEndpoint)
+		generateAlert(s, packet, s.curFileName, s.alertEndpoint)
 	}
 	return nil
 }
@@ -185,7 +185,7 @@ func (s *PcapSink) Ready() <-chan struct{} {
 	return s.ready
 }
 
-func generateAlert(packet *types.Packet, curFileName string, AlertEndpoint string) {
+func generateAlert(sink *PcapSink, packet *types.Packet, curFileName string, AlertEndpoint string) {
 	var ruleInfo *ruleEngine.ProtocolRule
 	t := packet.RuleResult.MatchType
 	if t == types.MatchTypeBlacklist {
@@ -248,13 +248,8 @@ func generateAlert(packet *types.Packet, curFileName string, AlertEndpoint strin
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: time.Second * 5, // 设置5秒超时
-	}
-
 	// 发送HTTP请求
-	resp, err := client.Do(req)
+	resp, err := sink.httpClient.Do(req)
 	if err != nil {
 		logrus.Errorf("Failed to send alert: %v", err)
 		return
