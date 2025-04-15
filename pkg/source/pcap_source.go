@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type PcapSource struct {
+type PcapLiveSource struct {
 	handle    *pcap.Handle
 	output    chan *types.Packet
 	bpfFilter string
@@ -25,11 +25,12 @@ type PcapSource struct {
 	mu        sync.Mutex
 }
 
-func NewPcapSource(config *config.Config) (*PcapSource, error) {
+func NewPcapSource(config *config.Config) (*PcapLiveSource, error) {
 	if config.Source.Interface.Name == "" {
 		return nil, fmt.Errorf("interface name is required")
 	}
 
+	// 打开捕获的网口
 	handle, err := pcap.OpenLive(
 		config.Source.Interface.Name,
 		config.Source.Interface.Snaplen,
@@ -49,7 +50,7 @@ func NewPcapSource(config *config.Config) (*PcapSource, error) {
 		}
 	}
 
-	return &PcapSource{
+	return &PcapLiveSource{
 		handle:  handle,
 		output:  make(chan *types.Packet, config.Pipeline.BufferSize),
 		device:  config.Source.Interface.Name,
@@ -58,7 +59,7 @@ func NewPcapSource(config *config.Config) (*PcapSource, error) {
 	}, nil
 }
 
-func (s *PcapSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
+func (s *PcapLiveSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 	s.done = make(chan struct{})
 
 	if s.bpfFilter != "" {
@@ -119,22 +120,22 @@ func (s *PcapSource) Start(ctx context.Context, wg *sync.WaitGroup) error {
 	return nil
 }
 
-func (s *PcapSource) Output() <-chan *types.Packet {
+func (s *PcapLiveSource) Output() <-chan *types.Packet {
 	return s.output
 }
 
-func (s *PcapSource) SetFilter(filter string) error {
+func (s *PcapLiveSource) SetFilter(filter string) error {
 	s.bpfFilter = filter
 	return nil
 }
 
-func (s *PcapSource) Stop() error {
+func (s *PcapLiveSource) Stop() error {
 	logrus.Info("Stopping PcapSource...")
 	s.cleanup()
 	return nil
 }
 
-func (s *PcapSource) cleanup() {
+func (s *PcapLiveSource) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

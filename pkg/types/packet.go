@@ -2,6 +2,8 @@ package types
 
 import (
 	"net"
+
+	"github.com/haolipeng/gopacket"
 )
 
 // Packet 表示处理流水线中传递的数据包
@@ -29,6 +31,9 @@ type Packet struct {
 	SrcPort int
 	DstIP   net.IP
 	DstPort int
+
+	// 数据包捕获信息
+	CaptureInfo gopacket.CaptureInfo // 数据包捕获信息，包含时间戳、长度等
 }
 
 // PacketType 表示数据包类型

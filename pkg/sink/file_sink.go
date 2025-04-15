@@ -2,89 +2,99 @@ package sink
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"sync"
 
 	"github.com/haolipeng/convert_tunnel_detector/pkg/types"
+	"github.com/haolipeng/gopacket/layers"
+	"github.com/haolipeng/gopacket/pcapgo"
 	"github.com/sirupsen/logrus"
 )
 
-type FileSink struct {
-	filename string
-	file     *os.File
-	mu       sync.Mutex
-	ready    chan struct{}
+type PcapSink struct {
+	filename   string
+	pcapWriter *pcapgo.Writer
+	file       *os.File
+	mu         sync.Mutex
+	ready      chan struct{}
 }
 
-func NewFileSink(filename string) (*FileSink, error) {
-	logrus.Infof("Creating new file sink: %s", filename)
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+func NewPcapSink(filename string) (*PcapSink, error) {
+	logrus.Infof("Creating new pcap sink: %s", filename)
+
+	f, err := os.Create(filename)
 	if err != nil {
-		logrus.Errorf("Failed to open file sink: %v", err)
+		logrus.Errorf("Failed to create pcap file: %v", err)
 		return nil, err
 	}
 
-	return &FileSink{
-		filename: filename,
-		file:     file,
-		ready:    make(chan struct{}),
+	// 创建 pcap writer，使用以太网链路类型
+	w := pcapgo.NewWriter(f)
+	if err := w.WriteFileHeader(65535, layers.LinkTypeEthernet); err != nil {
+		f.Close()
+		logrus.Errorf("Failed to write pcap header: %v", err)
+		return nil, err
+	}
+
+	return &PcapSink{
+		filename:   filename,
+		pcapWriter: w,
+		file:       f,
+		ready:      make(chan struct{}),
 	}, nil
 }
 
-func (s *FileSink) writePacketToFile(packet *types.Packet) error {
-	// 将数据包转换为JSON格式
-	data := map[string]interface{}{
-		"id":        packet.ID,
-		"timestamp": packet.Timestamp,
-		"protocol":  packet.Protocol,
-	}
-
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		logrus.Errorf("Failed to marshal packet to JSON: %v", err)
-		return err
-	}
-
-	// 写入文件
+func (s *PcapSink) writePacketToPcap(packet *types.Packet) error {
 	s.mu.Lock()
-	defer s.mu.Unlock() // 确保在函数结束时解锁
+	defer s.mu.Unlock()
 
-	if _, err := s.file.Write(jsonData); err != nil {
-		logrus.Errorf("Failed to write packet to file: %v", err)
+	// 从 Packet 中获取原始数据和捕获信息
+	if packet.RawData == nil {
+		logrus.Error("No raw packet data available")
+		return nil
+	}
+
+	// 写入数据包
+	err := s.pcapWriter.WritePacket(packet.CaptureInfo, packet.RawData)
+	if err != nil {
+		logrus.Errorf("Failed to write packet to pcap: %v", err)
 		return err
 	}
-	if _, err := s.file.Write([]byte("\n")); err != nil {
-		logrus.Errorf("Failed to write newline to file: %v", err)
-		return err
-	}
+
 	return nil
 }
 
-func (s *FileSink) Consume(ctx context.Context, in <-chan *types.Packet) error {
-	logrus.Info("Starting file sink consumer")
-	defer logrus.Info("File sink consumer stopped")
+func (s *PcapSink) Consume(ctx context.Context, in <-chan *types.Packet) error {
+	logrus.Info("Starting pcap sink consumer")
+	defer logrus.Info("Pcap sink consumer stopped")
 
 	close(s.ready)
 
 	for {
 		select {
 		case <-ctx.Done():
-			logrus.Debug("File sink received context cancellation")
-			return s.file.Close()
+			logrus.Debug("Pcap sink received context cancellation")
+			if err := s.file.Close(); err != nil {
+				logrus.Errorf("Failed to close pcap file: %v", err)
+			}
+			return nil
 		case packet, ok := <-in:
 			if !ok {
-				logrus.Debug("File sink input channel closed")
-				return s.file.Close()
+				logrus.Debug("Pcap sink input channel closed")
+				if err := s.file.Close(); err != nil {
+					logrus.Errorf("Failed to close pcap file: %v", err)
+				}
+				return nil
 			}
 
-			if err := s.writePacketToFile(packet); err != nil {
+			if err := s.writePacketToPcap(packet); err != nil {
+				logrus.Errorf("Failed to write packet: %v", err)
 				continue
 			}
 		}
 	}
 }
 
-func (s *FileSink) Ready() <-chan struct{} {
+func (s *PcapSink) Ready() <-chan struct{} {
 	return s.ready
 }
