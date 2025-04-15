@@ -25,7 +25,7 @@ type PcapLiveSource struct {
 	mu        sync.Mutex
 }
 
-func NewPcapSource(config *config.Config) (*PcapLiveSource, error) {
+func NewPcapLiveSource(config *config.Config) (*PcapLiveSource, error) {
 	if config.Source.Interface.Name == "" {
 		return nil, fmt.Errorf("interface name is required")
 	}
@@ -139,12 +139,14 @@ func (s *PcapLiveSource) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// 关闭捕获的网口
 	if s.handle != nil {
 		logrus.Debug("Closing pcap handle")
 		s.handle.Close()
 		s.handle = nil
 	}
 
+	// 关闭输出通道
 	if s.output != nil {
 		logrus.Debug("Closing output channel")
 		close(s.output)

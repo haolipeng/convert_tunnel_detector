@@ -142,7 +142,7 @@ func main() {
 		}
 		src = fileSource
 	} else {
-		liveSource, err := source.NewPcapSource(cfg)
+		liveSource, err := source.NewPcapLiveSource(cfg)
 		if err != nil {
 			logrus.Fatalf("Failed to create live source: %v", err)
 		}
